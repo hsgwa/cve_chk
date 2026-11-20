@@ -32,17 +32,31 @@ vuln-triage run --inventory-dir examples/inventory --env-master examples/env_mas
   --cache-dir examples/cache --offline --base-date 2026-11-20 --out-dir out
 ```
 
-### 脆弱性データの取得（db-update）
+### 脆弱性データの取得と毎日の更新（db-update）
 
-CVE の照合は、ダウンロードして手元に置いた脆弱性データだけで行います。回収データを置いたら、まず次を実行してください。
+CVE の照合は、ダウンロードして手元に置いた脆弱性データだけで行います。**初回**は、回収データを置いてから次を実行します。
 
 ```
-vuln-triage db-update --inventory-dir inventory
+python -m vuln_triage db-update --inventory-dir inventory
 ```
 
-回収データに出てくるパッケージの種類を見て、必要なデータだけを取得し、`vulndb/` に照合用の索引（SQLite）を作ります。**週に 1 回程度、または通達を照合する前に**実行してください（7 日より古いデータで `run` すると警告が出ます）。
+回収データに出てくるパッケージの種類を見て、必要なデータだけを取得し、`vulndb/` に照合用の索引（SQLite）を作ります。
 
-| データ | 取得元 | 大きさの目安 |
+**2 回目以降は毎日実行します**（下の「毎日の自動実行」で登録できます）。
+
+```
+python -m vuln_triage db-update                              # 取得済みのデータをすべて更新
+python -m vuln_triage db-update --inventory-dir inventory    # 新しく出てきたエコシステムも追加
+```
+
+- 毎日の更新は**差分**です。OSV.dev が公開している変更一覧（`modified_id.csv`）を見て、前回から変わった記録だけを取り直します。Maven の場合で 1 日あたり数百 KB 程度です。
+- Amazon Linux は、公式リポジトリの updateinfo が前回と同じなら、ダウンロード自体を省きます。
+- `config.yaml` の `vulndb.full_refresh_days`（既定 7 日）ごとに全件を取り直して、ずれを防ぎます。差分が `max_delta_records`（既定 3000 件）を超えた日も全件を取り直します。`--full` を付けると、いつでも全件を取り直せます。
+- 更新に失敗したデータは、前回の内容のまま残ります（終了コード 1）。次回の更新で取り直されます。
+- 最後の更新から 1 日（`vulndb.max_age_days`）を超えたデータで `run` すると、サマリに「更新が古くなっています」と出ます。
+- `python -m vuln_triage` は `vuln-triage` と同じです。pip が作る `vuln-triage.exe` を使わずに済みます。
+
+| データ | 取得元 | 初回（全件）の大きさの目安 |
 |---|---|---|
 | Java（Maven）/ Python / npm / NuGet / Go / Rust / Ruby など | OSV.dev（Google が公開している脆弱性データ） | Maven 10 MB、PyPI 37 MB、npm 212 MB など |
 | Amazon Linux 2 / 2023 の OS パッケージ | Amazon Linux の公式リポジトリの updateinfo | 各 2〜3 MB |
@@ -51,8 +65,36 @@ vuln-triage db-update --inventory-dir inventory
 
 - 管理 PC から次のホストへ HTTPS（Amazon Linux 2 は HTTP）で出られる必要があります: `osv-vulnerabilities.storage.googleapis.com`、`amazonlinux.default.amazonaws.com`、`cdn.amazonlinux.com`、`al2023-repos-*.s3.dualstack.*.amazonaws.com`。社内プロキシは環境変数 `HTTPS_PROXY` / `HTTP_PROXY` で指定します。
 - 送るのはダウンロードの要求だけで、パッケージ名やホスト名などの回収データは外部に送りません。
-- 管理 PC から取得できない場合は、別の PC のブラウザで `https://osv-vulnerabilities.storage.googleapis.com/<エコシステム名>/all.zip`（例 `Maven/all.zip`）を保存し、`vuln-triage db-update --import Maven=Maven.zip` で取り込めます。
-- 取得済みのデータは `vuln-triage db-update --list` で確認できます。
+- 管理 PC から取得できない場合は、別の PC のブラウザで `https://osv-vulnerabilities.storage.googleapis.com/<エコシステム名>/all.zip`（例 `Maven/all.zip`）を保存し、`db-update --import Maven=Maven.zip` で取り込めます（この場合は差分更新はできず、次回の更新は全件になります）。
+- 取得済みのデータと最終更新日時は `python -m vuln_triage db-update --list` で確認できます。
+
+### 毎日の自動実行（Windows のタスクスケジューラ）
+
+管理 PC で一度だけ次を実行すると、毎朝 6:30 に `db-update` を実行するタスクが登録されます（Windows 標準の機能だけを使います）。
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -InventoryDir D:\vuln\inventory
+```
+
+| 引数 | 内容 |
+|---|---|
+| `-Time 06:30` | 実行する時刻 |
+| `-InventoryDir` | 回収データのフォルダ（新しく出てきたエコシステムを自動で追加する） |
+| `-DbDir` / `-Config` | 脆弱性データの置き場所 / 設定ファイル（省略時は既定） |
+| `-Python` | python.exe の場所（省略時は PATH から探す） |
+| `-RunWhetherLoggedOn` | ログオフ中も実行する（パスワードを尋ねられる）。省略時はログオン中のみ |
+| `-Unregister` | 登録を削除する |
+
+- 実行内容は `scripts\daily_db_update.ps1` です。結果は `logs\db-update_<日付>.log` に残り、30 日より古いログは消えます。
+- PC が止まっていて時刻を過ぎた場合は、起動後に実行します。失敗した場合は 30 分後に 2 回まで再試行します。
+- 失敗したかどうかは、ログの最後の行（「終了: 成功」/「終了: 失敗」）か、タスクスケジューラの「履歴」で確認できます。
+- すぐに試すには `Start-ScheduledTask -TaskName "vuln-triage db-update"` を実行します。
+- スクリプトを使わずに登録する場合は、タスクスケジューラで次のように設定します。
+  - トリガー: 毎日 6:30
+  - 操作: プログラム `powershell.exe`、引数 `-NoProfile -ExecutionPolicy Bypass -File "<ツールのフォルダ>\scripts\daily_db_update.ps1" -InventoryDir "<回収データのフォルダ>"`、開始 `<ツールのフォルダ>`
+  - 設定: 「スケジュールされた時刻にタスクを開始できなかった場合、すぐにタスクを実行する」をオン
+
+**注意: タスクの登録（`register_daily_task.ps1`）は Windows 実機では未確認です**（開発環境の Linux では、`daily_db_update.ps1` の実行とログ出力だけを確認しています）。初回は登録後に「すぐに試す」で 1 回実行し、ログに「終了: 成功」と出ることを確認してください。
 
 Trivy（`trivy.exe`）を使いたい場合は `--scanner trivy` で従来どおり使えます（7 章参照）。
 
@@ -148,10 +190,11 @@ batch-emr,internal,分析基盤
 ## 4. 実行
 
 ```
-vuln-triage db-update    --inventory-dir inventory
-vuln-triage check-inputs --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx
-vuln-triage run          --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx --out-dir out
+python -m vuln_triage check-inputs --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx
+python -m vuln_triage run          --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx --out-dir out
 ```
+
+脆弱性データは毎日自動で更新されている前提です（上の「毎日の自動実行」）。回収データを入れ替えて新しい種類のパッケージが増えた場合は、`run` の前に `python -m vuln_triage db-update --inventory-dir inventory` を実行してください。
 
 `check-inputs` は判定をせず、回収データの読み込み結果と、通達の製品名が回収データのどれに当たったかを表示します。**新しい通達を取り込んだら、まずこれで「該当なし」が表記ゆれでないかを確認してください。**
 

@@ -4,6 +4,8 @@
   パッケージ名から記録を引くための索引を SQLite（Python 標準）に作る。
 - Amazon Linux は OSV.dev に無いため、公式リポジトリの updateinfo.xml を
   OSV と同じ形式の zip に変換して同じ仕組みで扱う。
+- 毎日の更新は差分で行う。OSV.dev が公開している modified_id.csv（更新日時と記録 ID の一覧）で
+  前回より新しい記録だけを1件ずつ取り直し、SQLite に保存する。一定日数ごとに全件を取り直す。
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
@@ -34,9 +36,12 @@ DEFAULT_AMAZON_MIRRORS = {
 INDEX_FILE = "index.sqlite"
 _CVE = re.compile(r"^CVE-\d{4}-\d+$", re.IGNORECASE)
 
+DELTA_FILE = "#delta"     # 差分更新で取った記録（records テーブルに保存）を表す entries.file の値
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sources (
     source TEXT PRIMARY KEY, file TEXT, url TEXT, updated_at TEXT, records INTEGER);
+CREATE TABLE IF NOT EXISTS records (record_id TEXT PRIMARY KEY, data TEXT);
 CREATE TABLE IF NOT EXISTS entries (
     ecosystem TEXT, name TEXT, record_id TEXT, file TEXT, member TEXT,
     UNIQUE (ecosystem, name, record_id));
@@ -46,8 +51,47 @@ CREATE TABLE IF NOT EXISTS scores (
 """
 
 
+# 後から足した sources の列（古い DB は開いたときに追加する）
+_SOURCE_COLUMNS = {"cursor": "TEXT", "full_at": "TEXT", "checksum": "TEXT"}
+
+
 class VulnDBError(RuntimeError):
     pass
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_time(text: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(text).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _time_key(text: str) -> tuple[str, int]:
+    """modified_id.csv の日時（小数部の桁数がまちまち）を正しく比べるためのキー。"""
+    text = text.strip().rstrip("Z")
+    base, _, fraction = text.partition(".")
+    return base, int((fraction + "000000000")[:9] or 0)
+
+
+def parse_modified_ids(text: str, since: str | None) -> tuple[str, list[str]]:
+    """modified_id.csv から (最新の日時, since より新しい記録 ID の一覧) を返す。"""
+    latest = ""
+    ids: list[str] = []
+    since_key = _time_key(since) if since else None
+    for line in text.splitlines():
+        stamp, _, record_id = line.strip().partition(",")
+        if not stamp:
+            continue
+        key = _time_key(stamp)
+        if not latest or key > _time_key(latest):
+            latest = stamp
+        if record_id and (since_key is None or key > since_key):
+            ids.append(record_id.strip())
+    return latest, list(dict.fromkeys(ids))
 
 
 def _fetch(url: str, timeout: int = 600) -> bytes:
@@ -122,6 +166,11 @@ class VulnDB:
             self.dir.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(self.index_path)
             self._conn.executescript(_SCHEMA)
+            columns = {row[1] for row in self._conn.execute("PRAGMA table_info(sources)")}
+            for name, kind in _SOURCE_COLUMNS.items():
+                if name not in columns:
+                    self._conn.execute(f"ALTER TABLE sources ADD COLUMN {name} {kind}")
+            self._conn.commit()
         return self._conn
 
     def close(self) -> None:
@@ -135,15 +184,24 @@ class VulnDB:
     def sources(self) -> dict[str, dict[str, Any]]:
         if not self.exists():
             return {}
-        rows = self.connect().execute("SELECT source, file, url, updated_at, records FROM sources")
-        return {r[0]: {"file": r[1], "url": r[2], "updated_at": r[3], "records": r[4]} for r in rows}
+        rows = self.connect().execute(
+            "SELECT source, file, url, updated_at, records, cursor, full_at, checksum FROM sources")
+        return {r[0]: {"file": r[1], "url": r[2], "updated_at": r[3], "records": r[4],
+                       "cursor": r[5], "full_at": r[6], "checksum": r[7]} for r in rows}
+
+    def _save_source(self, source: str, **values: Any) -> None:
+        conn = self.connect()
+        conn.execute("INSERT OR IGNORE INTO sources (source) VALUES (?)", (source,))
+        for key, value in values.items():
+            conn.execute(f"UPDATE sources SET {key} = ? WHERE source = ?", (value, source))
 
     # ------------------------------------------------------------ 作成
 
-    def _index_zip(self, source: str, relative: str, url: str) -> int:
+    def _index_zip(self, source: str, relative: str, url: str, **extra: Any) -> int:
         conn = self.connect()
         conn.execute("DELETE FROM entries WHERE file = ?", (relative,))
         count = 0
+        record_ids_in_zip: list[str] = []
         with zipfile.ZipFile(self.dir / relative) as archive:
             batch, scores = [], []
             for member in archive.namelist():
@@ -156,6 +214,7 @@ class VulnDB:
                 if record.get("withdrawn"):
                     continue
                 record_id = str(record.get("id") or member)
+                record_ids_in_zip.append(record_id)
                 for affected in record.get("affected") or []:
                     package = affected.get("package") or {}
                     ecosystem, name = package.get("ecosystem"), package.get("name")
@@ -164,26 +223,101 @@ class VulnDB:
                 scores.extend(record_scores(record))
                 count += 1
                 if len(batch) > 20000:
-                    conn.executemany("INSERT OR IGNORE INTO entries VALUES (?, ?, ?, ?, ?)", batch)
+                    conn.executemany("INSERT OR REPLACE INTO entries VALUES (?, ?, ?, ?, ?)", batch)
                     batch.clear()
-            conn.executemany("INSERT OR IGNORE INTO entries VALUES (?, ?, ?, ?, ?)", batch)
+            conn.executemany("INSERT OR REPLACE INTO entries VALUES (?, ?, ?, ?, ?)", batch)
             conn.executemany("INSERT OR REPLACE INTO scores VALUES (?, ?, ?)", scores)
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        conn.execute("INSERT OR REPLACE INTO sources VALUES (?, ?, ?, ?, ?)", (source, relative, url, now, count))
+        # 全件を取り直したので、差分で取っていた同じ記録は不要（zip の方が新しい）
+        for start in range(0, len(record_ids_in_zip), 500):
+            chunk = record_ids_in_zip[start:start + 500]
+            marks = ",".join("?" * len(chunk))
+            conn.execute(f"DELETE FROM entries WHERE file = ? AND record_id IN ({marks})", (DELTA_FILE, *chunk))
+            conn.execute(f"DELETE FROM records WHERE record_id IN ({marks})", chunk)
+        now = _now()
+        self._save_source(source, file=relative, url=url, updated_at=now, records=count, full_at=now, **extra)
         conn.commit()
         return count
 
-    def update_osv(self, ecosystem: str) -> int:
+    def _osv_url(self, ecosystem: str, name: str) -> str:
         base = self.settings.get("osv_url") or DEFAULT_OSV_URL
-        url = f"{base.rstrip('/')}/{urllib.parse.quote(ecosystem)}/all.zip"
+        return f"{base.rstrip('/')}/{urllib.parse.quote(ecosystem)}/{urllib.parse.quote(name)}"
+
+    def _apply_records(self, records: list[dict]) -> None:
+        """差分で取った記録を入れ直す（同じ ID の古い索引はファイルを問わず消す）。"""
+        conn = self.connect()
+        for record in records:
+            record_id = str(record.get("id") or "")
+            if not record_id:
+                continue
+            conn.execute("DELETE FROM entries WHERE record_id = ?", (record_id,))
+            if record.get("withdrawn"):
+                conn.execute("DELETE FROM records WHERE record_id = ?", (record_id,))
+                continue
+            conn.execute("INSERT OR REPLACE INTO records VALUES (?, ?)",
+                         (record_id, json.dumps(record, ensure_ascii=False)))
+            rows = []
+            for affected in record.get("affected") or []:
+                package = affected.get("package") or {}
+                ecosystem, name = package.get("ecosystem"), package.get("name")
+                if ecosystem and name:
+                    rows.append((ecosystem, normalize_package(ecosystem, name), record_id, DELTA_FILE, record_id))
+            conn.executemany("INSERT OR REPLACE INTO entries VALUES (?, ?, ?, ?, ?)", rows)
+            conn.executemany("INSERT OR REPLACE INTO scores VALUES (?, ?, ?)", record_scores(record))
+            self._records.pop((DELTA_FILE, record_id), None)
+
+    def _needs_full(self, info: dict[str, Any] | None, force_full: bool) -> bool:
+        if force_full or not info or not info.get("cursor") or not info.get("full_at"):
+            return True
+        if not (self.dir / str(info.get("file") or "")).is_file():
+            return True
+        full_at = _parse_time(info["full_at"])
+        days = int(self.settings.get("full_refresh_days") or 7)
+        return full_at is None or datetime.now(timezone.utc) - full_at >= timedelta(days=days)
+
+    def update_osv(self, ecosystem: str, force_full: bool = False) -> str:
+        """OSV.dev のデータを更新する。戻り値は結果の説明（「全件 n 件」「差分 n 件」など）。"""
+        info = self.sources().get(ecosystem)
+        csv_url = self._osv_url(ecosystem, "modified_id.csv")
+        if not self._needs_full(info, force_full):
+            latest, changed = parse_modified_ids(self.fetch(csv_url).decode("utf-8"), info["cursor"])
+            limit = int(self.settings.get("max_delta_records") or 3000)
+            if not changed:
+                self._save_source(ecosystem, updated_at=_now())
+                self.connect().commit()
+                return "変更なし"
+            if len(changed) <= limit:
+                self.log(f"差分を取得中: {ecosystem}（{len(changed)} 件）")
+                # すべて取れてから反映する（途中で失敗したら前回の内容のまま）
+                records = [json.loads(self.fetch(self._osv_url(ecosystem, f"{rid}.json"))) for rid in changed]
+                self._apply_records(records)
+                self._save_source(ecosystem, updated_at=_now(), cursor=latest)
+                self.connect().commit()
+                return f"差分 {len(changed)} 件"
+            self.log(f"  変更が {len(changed)} 件と多いため、全件を取り直します")
+
+        # 全件: 先に一覧の最新日時を取っておき、次回はそれより新しいものを差分で取る
+        try:
+            cursor, _ = parse_modified_ids(self.fetch(csv_url).decode("utf-8"), None)
+        except Exception as exc:          # 一覧が無くても全件は取れる（次回も全件になる）
+            self.log(f"  変更一覧を取得できません（次回も全件を取得します）: {exc}")
+            cursor = None
+        url = self._osv_url(ecosystem, "all.zip")
         relative = f"osv/{ecosystem}.zip"
         self.log(f"ダウンロード中: {ecosystem}（{url}）")
         _download(url, self.dir / relative, self.fetch)
-        count = self._index_zip(ecosystem, relative, url)
-        self.log(f"  {ecosystem}: {count} 件")
-        return count
+        self._close_zip(relative)
+        count = self._index_zip(ecosystem, relative, url, cursor=cursor)
+        return f"全件 {count} 件"
 
-    def _amazon_repo(self, release: str) -> tuple[str, bytes]:
+    def _close_zip(self, relative: str) -> None:
+        archive = self._zips.pop(relative, None)
+        if archive is not None:
+            archive.close()
+        for key in [k for k in self._records if k[0] == relative]:
+            self._records.pop(key, None)
+
+    def _amazon_repo(self, release: str) -> tuple[str, str]:
+        """(updateinfo の URL, チェックサム) を返す。"""
         mirrors = {**DEFAULT_AMAZON_MIRRORS, **(self.settings.get("amazon_mirrors") or {})}
         if release not in mirrors:
             raise VulnDBError(f"Amazon Linux {release} のリポジトリ URL が設定されていません（vulndb.amazon_mirrors）")
@@ -201,11 +335,12 @@ class VulnDB:
             base = base.rstrip("/") + "/"
             try:
                 repomd = self.fetch(base + "repodata/repomd.xml").decode("utf-8")
-                match = re.search(r'type="updateinfo".*?href="([^"]+)"', repomd, re.S)
-                if not match:
+                match = re.search(r'<data type="updateinfo">(.*?)</data>', repomd, re.S)
+                href = re.search(r'href="([^"]+)"', match.group(1)) if match else None
+                if not href:
                     raise VulnDBError("repomd.xml に updateinfo がありません")
-                url = base + match.group(1)
-                return url, _decompress(self.fetch(url))
+                checksum = re.search(r"<checksum[^>]*>\s*([0-9a-fA-F]+)\s*</checksum>", match.group(1))
+                return base + href.group(1), checksum.group(1).lower() if checksum else ""
             except Exception as exc:          # 次のミラーを試す
                 errors.append(f"{base}: {exc}")
         raise VulnDBError("Amazon Linux のリポジトリに接続できません: " + " / ".join(errors))
@@ -241,32 +376,41 @@ class VulnDB:
                 ],
             }
 
-    def update_amazon(self, release: str) -> int:
+    def update_amazon(self, release: str, force_full: bool = False) -> str:
         source = f"{AMAZON_PREFIX}{release}"
-        self.log(f"ダウンロード中: {source}（公式リポジトリの updateinfo）")
-        url, xml_text = self._amazon_repo(release)
         relative = f"amazon/amazon-linux-{release}.zip"
+        info = self.sources().get(source) or {}
+        url, checksum = self._amazon_repo(release)
+        if (not force_full and checksum and checksum == info.get("checksum")
+                and (self.dir / relative).is_file()):
+            self._save_source(source, updated_at=_now())
+            self.connect().commit()
+            return "変更なし"
+        self.log(f"ダウンロード中: {source}（公式リポジトリの updateinfo）")
+        xml_text = _decompress(self.fetch(url))
         target = self.dir / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         temp = target.with_suffix(".zip.part")
         with zipfile.ZipFile(temp, "w", zipfile.ZIP_DEFLATED) as archive:
             for record in self.amazon_records(xml_text, release):
                 archive.writestr(f"{record['id']}.json", json.dumps(record, ensure_ascii=False))
+        self._close_zip(relative)
         temp.replace(target)
-        count = self._index_zip(source, relative, url)
-        self.log(f"  {source}: {count} 件")
-        return count
+        count = self._index_zip(source, relative, url, checksum=checksum)
+        return f"全件 {count} 件"
 
-    def update(self, sources: Iterable[str]) -> dict[str, str]:
-        """データを取得する。戻り値は {データ名: エラー内容}（成功したものは含まない）。"""
+    def update(self, sources: Iterable[str], force_full: bool = False) -> dict[str, str]:
+        """データを更新する。戻り値は {データ名: エラー内容}（成功したものは含まない）。"""
         errors = {}
         for source in sources:
             try:
                 if source.startswith(AMAZON_PREFIX):
-                    self.update_amazon(source[len(AMAZON_PREFIX):])
+                    result = self.update_amazon(source[len(AMAZON_PREFIX):], force_full)
                 else:
-                    self.update_osv(source)
+                    result = self.update_osv(source, force_full)
+                self.log(f"  {source}: {result}")
             except Exception as exc:
+                self.connect().rollback()
                 errors[source] = str(exc)
                 self.log(f"  失敗: {source}: {exc}")
         return errors
@@ -277,9 +421,11 @@ class VulnDB:
             f"amazon/amazon-linux-{source[len(AMAZON_PREFIX):]}.zip"
         target = self.dir / relative
         target.parent.mkdir(parents=True, exist_ok=True)
+        self._close_zip(relative)
         if Path(path).resolve() != target.resolve():
             shutil.copyfile(path, target)
-        return self._index_zip(source, relative, url or str(path))
+        # 手で取り込んだデータは差分の起点が分からないので、次回の更新は全件になる
+        return self._index_zip(source, relative, url or str(path), cursor=None)
 
     # ------------------------------------------------------------ 検索
 
@@ -306,6 +452,13 @@ class VulnDB:
         if key in self._records:
             self._records.move_to_end(key)
             return self._records[key]
+        if file == DELTA_FILE:
+            row = self.connect().execute("SELECT data FROM records WHERE record_id = ?", (member,)).fetchone()
+            record = json.loads(row[0]) if row else None
+            self._records[key] = record
+            if len(self._records) > self._cache_size:
+                self._records.popitem(last=False)
+            return record
         if True:
             archive = self._zips.get(file)
             if archive is None:

@@ -93,7 +93,7 @@ def test_cli_end_to_end(examples, tmp_path):
     assert coverage["win-legacy"][3] == "未登録" and coverage["win-legacy"][9] == "不可"
     assert "agent.exe" in coverage["win-app01"][13]
     assert "win-legacy" in result.output and "サマリ" in result.output
-    assert "脆弱性データの取得日" in result.output
+    assert "脆弱性データの更新日時" in result.output
 
 
 def test_cli_with_saved_trivy_results(examples, tmp_path):
@@ -168,3 +168,18 @@ def test_resolve_hashes(tmp_path):
     assert jar.group == "com.example" and calls == ["abc"]         # groupId が分かっている jar は問い合わせない
     again = comp("legacy-lib", "1.2.3", kind=KIND_MAVEN, extra_names=("sha1:abc",))
     assert resolve_hashes([make_env(components=[again])], cache, search=lambda s: 1 / 0) == (1, None)   # キャッシュ
+
+
+def test_stale_database_warning_is_one_line(examples, tmp_path):
+    import shutil
+    import sqlite3
+    db_dir = tmp_path / "vulndb"
+    shutil.copytree(examples / "vulndb", db_dir)
+    conn = sqlite3.connect(db_dir / "index.sqlite")
+    conn.execute("UPDATE sources SET updated_at = '2026-01-01T00:00:00Z'")
+    conn.commit()
+    conn.close()
+    result = run_examples(examples, tmp_path, scanner=("--db-dir", str(db_dir)))
+    assert result.exit_code == 0, result.output
+    lines = [line for line in result.output.splitlines() if "更新が古くなっています" in line]
+    assert len(lines) == 1 and "Maven（" in lines[0] and "日前）" in lines[0]

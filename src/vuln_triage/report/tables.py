@@ -192,5 +192,6 @@ def overview(advisories: list[Advisory], rows: list[Verdict], new_findings: list
         "overdue": sum(1 for r in affected if "期限超過" in r.note),
         "new_findings": len(new_findings),
         "unregistered": [e.name for e in envs if not e.registered],
-        "db": {name: str(info.get("updated_at", ""))[:10] for name, info in sorted((db_info or {}).items())},
+        "db": {name: str(info.get("updated_at", "")).replace("T", " ").replace("Z", " UTC")[:20]
+               for name, info in sorted((db_info or {}).items())},
     }

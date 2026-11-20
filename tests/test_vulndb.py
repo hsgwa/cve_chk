@@ -12,8 +12,8 @@ from vuln_triage.models import KIND_MAVEN, Component
 from vuln_triage.vulndb import store as store_module
 from vuln_triage.vulndb.cvss import cvss3_base_score
 from vuln_triage.vulndb.ecosystems import build_query, needed_sources, parse_purl_full
-from vuln_triage.vulndb.scanner import evaluate, scan_with_vulndb
-from vuln_triage.vulndb.store import VulnDB
+from vuln_triage.vulndb.scanner import evaluate, scan_with_vulndb, stale_sources
+from vuln_triage.vulndb.store import DELTA_FILE, VulnDB, parse_modified_ids
 from vuln_triage.vulndb.versions import (
     compare,
     compare_dpkg,
@@ -264,7 +264,8 @@ def test_scan_with_vulndb(tmp_path, config):
     assert "GHSA-JFH8-C2JP-5V3Q" in log4shell.all_ids
     assert jar.checked and other.checked and not deb.checked
     assert env.missing_db == {"Ubuntu": 1}
-    assert any("30 日前" in w for w in env.warnings) and any("Ubuntu の脆弱性データが無い" in w for w in env.warnings)
+    assert any("Ubuntu の脆弱性データが無い" in w for w in env.warnings)
+    assert stale_sources(db, config) == ["Maven（30 日前）", "crates.io（30 日前）"]
 
 
 def test_example_database(examples, config):
@@ -280,11 +281,11 @@ def test_example_database(examples, config):
 def test_db_update_cli(tmp_path, monkeypatch, examples):
     archive = osv_zip(tmp_path / "m.zip", RECORDS)
     runner = CliRunner()
+    assert runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "empty")]).exit_code == 2   # 初回は対象の指定が必要
     result = runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db"), "--import", f"Maven={archive}"])
     assert result.exit_code == 0, result.output
     result = runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db"), "--list"])
     assert "Maven: 3 件" in result.output
-    assert runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db")]).exit_code == 2
 
     requested = []
 
@@ -293,8 +294,183 @@ def test_db_update_cli(tmp_path, monkeypatch, examples):
         raise OSError("offline")
 
     monkeypatch.setattr(store_module, "_fetch", fake_fetch)
+    # 引数なし = 取得済みのデータ（Maven）をすべて更新する。失敗しても前の内容は残る
+    result = runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db")])
+    assert result.exit_code == 1 and "前回の内容のまま" in result.output
+    assert any(url.endswith("/Maven/all.zip") for url in requested)
+    assert "Maven: 3 件" in runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db"), "--list"]).output
+
+    requested.clear()
     result = runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db2"), "--inventory-dir",
                                   str(examples / "inventory")])
     assert result.exit_code == 1
     assert "Amazon Linux:2、Maven、PyPI、Ubuntu、Debian" in result.output
     assert any("/Maven/all.zip" in url for url in requested)
+
+
+# ------------------------------------------------------------------ 毎日の差分更新
+
+def test_parse_modified_ids():
+    text = ("2026-11-19T21:00:04.802632106Z,GHSA-b\n"
+            "2026-11-19T21:00:04.08692612Z,GHSA-a\n"     # 小数部の桁数が違っても正しく比べる
+            "2026-11-18T00:00:00Z,GHSA-old\n"
+            "2026-11-19T21:00:04.9Z,\n")
+    assert parse_modified_ids(text, None) == ("2026-11-19T21:00:04.9Z", ["GHSA-b", "GHSA-a", "GHSA-old"])
+    assert parse_modified_ids(text, "2026-11-19T21:00:04.1Z")[1] == ["GHSA-b"]
+    assert parse_modified_ids(text, "2026-11-19T21:00:04.9Z")[1] == []
+
+
+class FakeOSV:
+    """OSV.dev の公開データの偽物。all.zip、modified_id.csv、記録単体の JSON を返す。"""
+
+    def __init__(self, tmp_path):
+        self.tmp_path = tmp_path
+        self.records = {}          # id -> (更新日時, 記録)
+        self.calls = []
+        self.fail = set()
+
+    def put(self, stamp, record):
+        self.records[record["id"]] = (stamp, record)
+
+    def __call__(self, url):
+        self.calls.append(url)
+        name = url.rsplit("/", 1)[-1]
+        if name in self.fail:
+            raise OSError(f"failed {name}")
+        if name == "all.zip":
+            return osv_zip(self.tmp_path / "all.zip", [r for _, r in self.records.values()]).read_bytes()
+        if name == "modified_id.csv":
+            rows = sorted(self.records.values(), key=lambda item: item[0], reverse=True)
+            return "".join(f"{stamp},{record['id']}\n" for stamp, record in rows).encode()
+        record_id = name[:-len(".json")]
+        return json.dumps(self.records[record_id][1]).encode()
+
+
+def maven_record(record_id, artifact, fixed):
+    return {"id": record_id, "aliases": [f"CVE-{record_id[-4:]}"], "affected": [{
+        "package": {"ecosystem": "Maven", "name": f"g:{artifact}"},
+        "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": fixed}]}]}]}
+
+
+def ids_for(db, artifact):
+    return sorted(r["id"] for _, r in db.lookup(("Maven",), (f"g:{artifact}",)))
+
+
+def test_incremental_update(tmp_path):
+    osv = FakeOSV(tmp_path)
+    osv.put("2026-11-01T00:00:00Z", maven_record("GHSA-0001", "a", "1.0"))
+    osv.put("2026-11-01T00:00:00Z", maven_record("GHSA-0002", "b", "1.0"))
+    osv.put("2026-11-01T00:00:00Z", maven_record("GHSA-0003", "c", "1.0"))
+    db = VulnDB(tmp_path / "db", {"vulndb": {"osv_url": "https://osv.invalid"}}, fetch=osv)
+
+    assert db.update_osv("Maven") == "全件 3 件"
+    info = db.sources()["Maven"]
+    assert info["cursor"] == "2026-11-01T00:00:00Z" and info["full_at"]
+
+    # 翌日: 追加 1、変更 1（修正版が変わる）、取り下げ 1
+    osv.put("2026-11-02T00:00:00Z", maven_record("GHSA-0004", "d", "2.0"))
+    osv.put("2026-11-02T00:00:00Z", maven_record("GHSA-0001", "a", "3.0"))
+    osv.put("2026-11-02T00:00:00Z", {**maven_record("GHSA-0002", "b", "1.0"), "withdrawn": "2026-11-02T00:00:00Z"})
+    osv.calls.clear()
+    assert db.update_osv("Maven") == "差分 3 件"
+    assert not any(url.endswith("all.zip") for url in osv.calls)
+    assert ids_for(db, "d") == ["GHSA-0004"]
+    assert ids_for(db, "b") == []
+    changed = next(r for _, r in db.lookup(("Maven",), ("g:a",)))
+    assert changed["affected"][0]["ranges"][0]["events"][1] == {"fixed": "3.0"}
+    assert db.connect().execute("SELECT count(*) FROM entries WHERE file = ?", (DELTA_FILE,)).fetchone()[0] == 2
+    assert db.sources()["Maven"]["cursor"] == "2026-11-02T00:00:00Z"
+
+    # 変更が無ければ何も取らない
+    osv.calls.clear()
+    assert db.update_osv("Maven") == "変更なし"
+    assert [url.rsplit("/", 1)[-1] for url in osv.calls] == ["modified_id.csv"]
+
+    # 全件を取り直すと、差分で取っていた記録は zip の内容に置き換わる
+    assert db.update_osv("Maven", force_full=True).startswith("全件")
+    assert db.connect().execute("SELECT count(*) FROM entries WHERE file = ?", (DELTA_FILE,)).fetchone()[0] == 0
+    assert db.connect().execute("SELECT count(*) FROM records").fetchone()[0] == 0
+    assert ids_for(db, "a") == ["GHSA-0001"] and ids_for(db, "b") == [] and ids_for(db, "d") == ["GHSA-0004"]
+    db.close()
+
+
+def test_incremental_failure_keeps_previous_state(tmp_path):
+    osv = FakeOSV(tmp_path)
+    osv.put("2026-11-01T00:00:00Z", maven_record("GHSA-0001", "a", "1.0"))
+    db = VulnDB(tmp_path / "db", {"vulndb": {"osv_url": "https://osv.invalid"}}, fetch=osv)
+    db.update_osv("Maven")
+    osv.put("2026-11-02T00:00:00Z", maven_record("GHSA-0005", "e", "1.0"))
+    osv.put("2026-11-02T00:00:01Z", maven_record("GHSA-0006", "f", "1.0"))
+    osv.fail.add("GHSA-0006.json")
+    assert set(db.update(["Maven"])) == {"Maven"}
+    assert ids_for(db, "e") == []                                  # 途中までの分も反映しない
+    assert db.sources()["Maven"]["cursor"] == "2026-11-01T00:00:00Z"
+    osv.fail.clear()
+    assert db.update_osv("Maven") == "差分 2 件"                    # 次回は取り直せる
+    assert ids_for(db, "e") == ["GHSA-0005"] and ids_for(db, "f") == ["GHSA-0006"]
+
+
+def test_switches_to_full_download(tmp_path):
+    osv = FakeOSV(tmp_path)
+    osv.put("2026-11-01T00:00:00Z", maven_record("GHSA-0001", "a", "1.0"))
+    config = {"vulndb": {"osv_url": "https://osv.invalid", "max_delta_records": 2, "full_refresh_days": 7}}
+    db = VulnDB(tmp_path / "db", config, fetch=osv)
+    db.update_osv("Maven")
+    for number in range(3):                                         # 上限（2 件）を超える変更
+        osv.put("2026-11-02T00:00:00Z", maven_record(f"GHSA-100{number}", "x", "1.0"))
+    assert db.update_osv("Maven") == "全件 4 件"
+    # 最後の全件取得から日数が経っていれば全件
+    db.connect().execute("UPDATE sources SET full_at = '2026-01-01T00:00:00Z'")
+    osv.put("2026-11-03T00:00:00Z", maven_record("GHSA-2000", "y", "1.0"))
+    assert db.update_osv("Maven") == "全件 5 件"
+    # 手で取り込んだデータは差分の起点が無いので、次回は全件
+    db.import_zip("Maven", osv_zip(tmp_path / "manual.zip", RECORDS))
+    assert db.sources()["Maven"]["cursor"] is None
+    assert db.update_osv("Maven").startswith("全件")
+
+
+def test_amazon_skips_unchanged_updateinfo(tmp_path):
+    calls = []
+    checksum = ["aaa"]
+
+    def fetch(url):
+        calls.append(url)
+        if url.endswith("mirror.list"):
+            return b"http://repo.invalid/2/core/\n"
+        if url.endswith("repomd.xml"):
+            return (f'<repomd><data type="primary"><checksum type="sha256">fff</checksum>'
+                    f'<location href="repodata/primary.xml.gz"/></data>'
+                    f'<data type="updateinfo"><checksum type="sha256">{checksum[0]}</checksum>'
+                    f'<location href="repodata/updateinfo.xml.gz"/></data></repomd>').encode()
+        if url.endswith("updateinfo.xml.gz"):
+            return gzip.compress(UPDATEINFO)
+        raise OSError(url)
+
+    db = VulnDB(tmp_path / "db", {"vulndb": {"amazon_mirrors": {"2": "http://repo.invalid/mirror.list"}}}, fetch=fetch)
+    assert db.update_amazon("2") == "全件 1 件"
+    assert db.sources()["Amazon Linux:2"]["checksum"] == "aaa"
+    calls.clear()
+    assert db.update_amazon("2") == "変更なし"
+    assert not any(url.endswith("updateinfo.xml.gz") for url in calls)
+    checksum[0] = "bbb"
+    assert db.update_amazon("2") == "全件 1 件"
+
+
+def test_old_database_is_migrated(tmp_path):
+    import sqlite3
+    path = tmp_path / "db"
+    path.mkdir()
+    conn = sqlite3.connect(path / "index.sqlite")
+    conn.execute("CREATE TABLE sources (source TEXT PRIMARY KEY, file TEXT, url TEXT, updated_at TEXT, records INTEGER)")
+    conn.execute("INSERT INTO sources VALUES ('Maven', 'osv/Maven.zip', 'u', '2026-11-01T00:00:00Z', 1)")
+    conn.commit()
+    conn.close()
+    info = VulnDB(path).sources()["Maven"]
+    assert info["records"] == 1 and info["cursor"] is None and info["checksum"] is None
+
+
+def test_python_module_entry():
+    import subprocess
+    import sys
+    result = subprocess.run([sys.executable, "-m", "vuln_triage", "--help"], capture_output=True, text=True)
+    assert result.returncode == 0 and "db-update" in result.stdout

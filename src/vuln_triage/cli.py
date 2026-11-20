@@ -19,7 +19,7 @@ from .sbom_builder import assign_purls, write_sboms
 from .trivy_runner import TrivyNotFoundError, scan_environments
 from .verdict import Judge
 from .vulndb.ecosystems import needed_sources
-from .vulndb.scanner import scan_with_vulndb
+from .vulndb.scanner import scan_with_vulndb, stale_sources
 from .vulndb.store import VulnDB, VulnDBError
 
 
@@ -65,39 +65,49 @@ def main() -> None:
 
 @main.command("db-update")
 @click.option("--inventory-dir", "--sbom-dir", "inventory_dir", type=click.Path(exists=True, file_okay=False),
-              help="回収ファイルのフォルダ。ここに出てくるエコシステムの脆弱性データを取得する")
+              help="回収ファイルのフォルダ。ここに新しく出てきたエコシステムのデータも取得する")
 @click.option("--ecosystem", "ecosystems", multiple=True,
               help="追加で取得するデータ（例: Maven、PyPI、Ubuntu、\"Amazon Linux:2023\"）。複数指定可")
 @click.option("--import", "imports", multiple=True, metavar="名前=ZIP",
               help="手元にある OSV 形式の zip を取り込む（例: Maven=C:\\dl\\Maven.zip）。ネットに出られない場合用")
+@click.option("--full", "force_full", is_flag=True, help="差分ではなく全件を取り直す")
 @click.option("--db-dir", help="脆弱性データの置き場所（省略時は config.yaml の vulndb.dir）")
 @click.option("--config", "config_path", type=click.Path(exists=True, dir_okay=False), help="設定ファイル")
 @click.option("--list", "show", is_flag=True, help="取得済みのデータを表示するだけ")
-def db_update(inventory_dir, ecosystems, imports, db_dir, config_path, show):
-    """脆弱性データ（OSV.dev / Amazon Linux の公式情報）を取得して、手元のデータベースを作ります。"""
+def db_update(inventory_dir, ecosystems, imports, force_full, db_dir, config_path, show):
+    """脆弱性データ（OSV.dev / Amazon Linux の公式情報）を取得・更新します。
+
+    引数なしで実行すると、取得済みのデータをすべて更新します（毎日の自動実行用）。
+    2 回目以降は前回からの変更分だけを取得し、config.yaml の vulndb.full_refresh_days ごとに全件を取り直します。
+    """
     config = load_config(config_path or _default_config())
     db = VulnDB(db_dir or config["vulndb"]["dir"], config, log=_echo)
+    existing = db.sources()
     if show:
-        sources = db.sources()
-        if not sources:
+        if not existing:
             click.echo("取得済みのデータはありません")
-        for name, info in sorted(sources.items()):
-            click.echo(f"{name}: {info['records']} 件（{info['updated_at']} 取得）")
+        for name, info in sorted(existing.items()):
+            click.echo(f"{name}: {info['records']} 件（最終確認 {info['updated_at']}、全件取得 {info['full_at'] or '-'}）")
         return
 
-    targets = list(dict.fromkeys(ecosystems))
+    targets = list(existing)
+    for name in ecosystems:
+        if name not in targets:
+            targets.append(name)
     if inventory_dir:
         envs = load_inventories(inventory_dir, {})
         assign_purls(envs)
         found, unsupported = needed_sources(envs, config)
-        for name in found:
-            if name not in targets:
-                targets.append(name)
-        _echo("回収データから判断した取得対象: " + ("、".join(found) or "なし"))
+        added = [name for name in found if name not in targets]
+        targets.extend(added)
+        if added:
+            _echo("回収データから追加する取得対象: " + "、".join(added))
         for name, count in sorted(unsupported.items()):
             _echo(f"注意: {name} は照合できません（{count} 件のパッケージ）")
+    imported = {item.partition("=")[0] for item in imports}
+    targets = [name for name in targets if name not in imported]
     if not targets and not imports:
-        raise click.UsageError("--inventory-dir か --ecosystem か --import を指定してください")
+        raise click.UsageError("取得済みのデータがありません。初回は --inventory-dir か --ecosystem を指定してください")
 
     errors = {}
     for item in imports:
@@ -109,12 +119,12 @@ def db_update(inventory_dir, ecosystems, imports, db_dir, config_path, show):
             _echo(f"取り込み: {name} {count} 件")
         except Exception as exc:
             errors[name] = str(exc)
-    errors.update(db.update(targets))
+    errors.update(db.update(targets, force_full=force_full))
     db.close()
     if errors:
         for name, message in errors.items():
             _echo(f"エラー: {name}: {message}")
-        _echo("取得できなかったデータがあります。そのエコシステムのパッケージは照合されず「判定不能」になります。")
+        _echo("更新できなかったデータは前回の内容のまま残っています。そのデータが無いエコシステムは照合されず「判定不能」になります。")
         sys.exit(1)
     _echo(f"完了: {db.dir}")
 
@@ -170,6 +180,10 @@ def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory
                     f"  vuln-triage db-update --inventory-dir {inventory_dir}")
             assign_purls(envs)
             db_info = db.sources()
+            stale = stale_sources(db, config)
+            if stale:
+                messages.append("脆弱性データの更新が古くなっています: " + "、".join(stale)
+                                + "（vuln-triage db-update で更新）")
             findings = scan_with_vulndb(envs, db, config, log=_echo)
             db.close()
             missing = sorted({name for env in envs for name in env.missing_db})

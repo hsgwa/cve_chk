@@ -88,6 +88,23 @@ def _matches_ecosystem(pattern: str, ecosystem: str) -> bool:
     return ecosystem.startswith(pattern[:-1]) if pattern.endswith("%") else ecosystem == pattern
 
 
+def stale_sources(db: VulnDB, config: dict[str, Any], now: datetime | None = None) -> list[str]:
+    """更新が古くなっているデータの説明（例: 「Maven（2 日前）」）。"""
+    max_age = int(((config.get("vulndb") or {}).get("max_age_days")) or 1)
+    now = now or datetime.now(timezone.utc)
+    result = []
+    for source, info in sorted(db.sources().items()):
+        try:
+            updated = datetime.fromisoformat(str(info["updated_at"]).replace("Z", "+00:00"))
+        except ValueError:
+            result.append(f"{source}（更新日時不明）")
+            continue
+        age = now - updated
+        if age.total_seconds() > max_age * 86400:
+            result.append(f"{source}（{age.days} 日前）" if age.days else f"{source}（{int(age.total_seconds() // 3600)} 時間前）")
+    return result
+
+
 def _is_informational(record: dict) -> bool:
     """脆弱性ではない参考情報（RustSec の「保守終了」など）か。Trivy と同じく対象外にする。"""
     for affected in record.get("affected") or []:
@@ -112,17 +129,6 @@ def scan_with_vulndb(
     settings = config.get("vulndb") or {}
     priority = config.get("cvss_source_priority") or ["nvd"]
     available = db.sources()
-    max_age = int(settings.get("max_age_days") or 7)
-    now = datetime.now(timezone.utc)
-    for source, info in sorted(available.items()):
-        try:
-            updated = datetime.fromisoformat(str(info["updated_at"]).replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        if (now - updated).days > max_age:
-            for env in envs:
-                env.warnings.append(f"脆弱性データ {source} が {(now - updated).days} 日前のものです（db-update で更新）")
-            break
 
     findings: list[Finding] = []
     for env in envs:

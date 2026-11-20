@@ -33,7 +33,9 @@ scanner: osv
 # ---- 手元の脆弱性データ（vuln-triage db-update で取得） ------------------------
 vulndb:
   dir: vulndb             # 置き場所
-  max_age_days: 7         # これより古いデータで実行すると警告する
+  max_age_days: 1         # 最後の更新からこの日数を超えたデータで実行すると警告する（毎日更新が前提）
+  full_refresh_days: 7    # 普段は差分だけ取得し、この日数ごとに全件を取り直す
+  max_delta_records: 3000 # 差分がこの件数を超えたら全件を取り直す
   ubuntu_pro: false       # Ubuntu Pro（ESM）の修正情報も使う
   # Amazon Linux の公式情報には CVSS が無いので、点数を引くために一緒に取るデータ
   score_sources: [Debian]

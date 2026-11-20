@@ -6,6 +6,7 @@
 >   - Trivy との突き合わせ結果（実データ）: Amazon Linux 2 / 2023 の OS パッケージは Trivy の検出 313 件中 313 件（各）、Java / Python / npm / Go / Rust のライブラリも Trivy の検出をすべて検出。Ruby は Trivy 独自のデータ源（ruby-advisory-db）の 8 件が欠ける。Ubuntu の OS パッケージは、OSV.dev の Ubuntu データと Trivy の Ubuntu データの中身が違い、結果が大きく異なる（参考扱い）。
 >   - syft の SBOM（OS 名 `amzn`）を Trivy に渡すと Amazon Linux は「未対応の OS」となり OS パッケージが照合されないことを確認した。当初の Trivy 前提の設計では EMR などの OS パッケージを見落としていた。
 >   - Amazon Linux の公式情報には CVSS が無いため、Debian のデータ（OSV.dev）の同じ CVE から点数を引く（試験では 371 件中 341 件に点数が付いた）。
+> - **脆弱性データは毎日更新する（差分更新）。** OSV.dev の `modified_id.csv` で前回より新しい記録だけを1件ずつ取り直し（Maven で 1 日数百 KB）、7 日ごとに全件を取り直す。Amazon Linux は updateinfo のチェックサムが同じなら取得を省く。実データで、差分更新後の索引が全件取り直しの索引と一致することを確認した。管理 PC では `scripts/register_daily_task.ps1` で Windows のタスクスケジューラに毎日の更新を登録する（Windows 実機では未確認）。古いデータの警告は 1 日超で出す。
 > - **jbom.jar は使わない。** 実物（v1.2.1）で log4j-core 2.14.1 の jar を解析したところ、版が `core/pom`、PURL なしという誤った結果になった。Windows の jar は ps1 の自前解析だけで取る。
 > - **Windows の回収ファイルは 1 台 1 ファイル**（`inventory.json`）。
 > - 「回収データが一部のみ（SBOM も inventory.json も無い）」の環境で製品が見つからない場合は、「未使用」ではなく「判定不能」にした。

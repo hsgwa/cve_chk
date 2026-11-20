@@ -67,7 +67,7 @@ def overview_lines(info: dict[str, Any], config: dict[str, Any], messages: list[
         lines.append(f"期限超過: {info['overdue']} 行")
     lines.append(f"通達に無い新規検出（参考）: {info['new_findings']} 件")
     if info.get("db"):
-        lines.append("脆弱性データの取得日: " + "、".join(f"{k} {v}" for k, v in info["db"].items()))
+        lines.append("脆弱性データの更新日時: " + "、".join(f"{k} {v.strip()}" for k, v in info["db"].items()))
     if info["unregistered"]:
         lines.append("注意: env_master 未登録のため internal 扱いにした環境: " + "、".join(info["unregistered"]))
     lines.extend(f"注意: {m}" for m in messages)
