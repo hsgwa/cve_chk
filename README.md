@@ -59,10 +59,11 @@ python -m vuln_triage db-update --inventory-dir inventory    # 新しく出て�
 | データ | 取得元 | 初回（全件）の大きさの目安 |
 |---|---|---|
 | Java（Maven）/ Python / npm / NuGet / Go / Rust / Ruby など | OSV.dev（Google が公開している脆弱性データ） | Maven 10 MB、PyPI 37 MB、npm 212 MB など |
-| Amazon Linux 2 / 2023 の OS パッケージ | Amazon Linux の公式リポジトリの updateinfo | 各 2〜3 MB |
+| Amazon Linux 2 / 2023 の OS パッケージ | Amazon Linux の公式リポジトリの updateinfo（Amazon Linux 2 は extras の全トピックも） | 各 2〜3 MB（extras は合計 数 MB） |
 | Ubuntu / Debian / RHEL / Rocky / AlmaLinux の OS パッケージ | OSV.dev | Ubuntu 784 MB、Debian 80 MB、Red Hat 28 MB |
 | CVSS の点数（Amazon Linux 用） | OSV.dev の Debian データ（OS パッケージがある場合に自動で取得） | 80 MB |
 
+- 取得したデータに、本ツールが分類していない系統（例: データ提供元が新しく追加したもの）があると、`db-update` が警告を出します。その系統にしか修正情報が無い脆弱性は見落とすので、[docs/DEFECTS.md](docs/DEFECTS.md) の手順で確認してください。
 - 管理 PC から次のホストへ HTTPS（Amazon Linux 2 は HTTP）で出られる必要があります: `osv-vulnerabilities.storage.googleapis.com`、`amazonlinux.default.amazonaws.com`、`cdn.amazonlinux.com`、`al2023-repos-*.s3.dualstack.*.amazonaws.com`。社内プロキシは環境変数 `HTTPS_PROXY` / `HTTP_PROXY` で指定します。
 - 送るのはダウンロードの要求だけで、パッケージ名やホスト名などの回収データは外部に送りません。
 - 管理 PC から取得できない場合は、別の PC のブラウザで `https://osv-vulnerabilities.storage.googleapis.com/<エコシステム名>/all.zip`（例 `Maven/all.zip`）を保存し、`db-update --import Maven=Maven.zip` で取り込めます（この場合は差分更新はできず、次回の更新は全件になります）。
@@ -256,8 +257,10 @@ python -m vuln_triage run          --inventory-dir inventory --env-master env_ma
 - **対象外**: コンテナの中身、Lambda の実行環境そのもの、AWS マネージドサービス側、Windows の Go / Rust 製 exe の内部依存。
 - **取りこぼしうるもの**: 権限不足で読めなかったフォルダ、走査対象に入れなかったフォルダ、ネットワークドライブ上のソフト、表に登録していない商用ソフト。「収集状況」シートで確認してください。
 - **判定の限界**: 脆弱性データ（OSV.dev、Amazon Linux の公式情報）に無い脆弱性は検出されません。「影響あり」は版の一致であり、実際に攻撃可能かは判定しません。製品名の表記が違うと「未使用」になります。
+- **対象外の系統**: RHEL の追加製品（OpenShift、JBoss など）、RHEL の延長サポート（EUS）、Ubuntu の FIPS / Realtime 版の修正情報は使いません（[docs/DEFECTS.md](docs/DEFECTS.md) の 4 章）。
+- **不具合の記録と類似不良の確認**: [docs/DEFECTS.md](docs/DEFECTS.md)。実データの監査は `python tools/audit_vulndb.py --db-dir vulndb --inventory-dir inventory`。
 - **照合の精度**: Trivy・Grype・OSV-Scanner と同じ SBOM で結果を比べました（[docs/COMPARISON.md](docs/COMPARISON.md)）。Amazon Linux 2 / 2023 の OS パッケージは Grype と完全に一致し、Java・Python・npm・Go・Rust のライブラリは他ツールの共通部分をすべて含み、Ubuntu の OS パッケージも Grype とほぼ一致しました。他の3ツールがそろって検出していて本ツールだけが見落としたものは 0 件です。Ruby は Trivy 独自のデータ源の分だけ少なくなります。実行ファイル自体（ruby・python・node のバイナリなど）の照合は行いません。
-- **Amazon Linux**: 取得するのは x86_64 の core リポジトリの情報です（arm64 も同じ版番号のため流用）。amazon-linux-extras のトピックや EMR 独自のパッケージは含みません。公式情報に CVSS が無いため、Debian のデータの同じ CVE から点数を引いています（見つからなければ「CVSS 不明」で Rank-C、備考に Amazon の深刻度を表示）。
+- **Amazon Linux**: Amazon Linux 2 は core と extras の全トピック（kernel-5.4 / 5.10 / 5.15、nginx1、php8.x など 73 件）、Amazon Linux 2023 は core の情報を取得します。x86_64 の情報で、arm64 にも同じ版番号のため流用します。EMR 独自のパッケージは含みません。公式情報に CVSS が無いため、Debian のデータの同じ CVE から点数を引いています（見つからなければ「CVSS 不明」で Rank-C、備考に Amazon の深刻度を表示）。
 - **Windows 用スクリプトは Windows 実機では未検証です**（Linux 上の PowerShell 7 で、ファイル解析の部分だけ確認済み）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
 - **Windows OS のビルド番号判定と `--resolve-hashes` は、実際の外部サービスに接続した確認ができていません。** 初回実行時に「取得できませんでした」と出る、または明らかにおかしい結果になる場合は連絡してください。
 

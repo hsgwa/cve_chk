@@ -87,6 +87,19 @@
 | Ruby: Trivy だけ 8 件 | Trivy 独自のデータ源（ruby-advisory-db）の記録 | OSV.dev に無い分。本ツールでは拾えない |
 | その他: Grype だけ 336 件 | ruby・python・node などの実行ファイルを、CPE で照合した検出 | 他のツールはこの方式を使わない |
 
+## 追加の比較: Amazon Linux 2 の kernel 5.10（extras）
+
+類似不良の調査で、Amazon Linux 2 の kernel 5.10 / 5.15 の修正情報が core に無いことが分かり、extras のトピックにも対応しました（[DEFECTS.md](DEFECTS.md) の #18・#19）。kernel 5.10 の古い版（`5.10.102-99.473.amzn2`）と nginx（nginx1 トピック）を入れた SBOM で比べた結果です。
+
+| | 本ツール（対応前） | 本ツール（対応後） | Trivy | Grype |
+|---|---|---|---|---|
+| kernel | 0 | 3,867 | 0 | 4,548 |
+| nginx | 0 | 40 | 0 | 40 |
+
+- Trivy は extras の情報を持たず、kernel 5.10 も nginx も 0 件でした。
+- Grype だけにある kernel の 1,416 件（kernel と kernel-headers の合計）は、すべて kernel-5.15 トピックの告知でした。kernel 5.10 のホストに 5.15 の修正版を当てはめた、Grype の誤検出です。kernel-5.10 トピックの告知は、本ツールがすべて検出しています。
+- 本ツールだけにあるもの（Trivy・Grype のどちらにも無いもの）は 0 件でした。
+
 ## 比較で見つけて直した本ツールの不具合
 
 比較の途中で、本ツールの不具合が2つ見つかったので直しました。上の表は修正後の数字です。

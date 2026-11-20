@@ -59,16 +59,25 @@ def _finding_component(finding: Finding) -> Component:
     return Component(name=finding.pkg_name, version=finding.installed_version)
 
 
-def _ecosystem_of(component: Component, env: EnvInventory) -> str | None:
-    """コンポーネントの版の比較規則（Maven、Amazon Linux など）。分からなければ None。"""
-    if not component.purl:
-        return None
-    from .vulndb.ecosystems import build_query
+# 版の比較規則（vulndb.versions.scheme_for が解釈するエコシステム名）
+_SCHEME_BY_PURL = {"deb": "Debian", "rpm": "Red Hat", "apk": "Alpine", "maven": "Maven", "pypi": "PyPI",
+                   "npm": "npm", "golang": "Go", "cargo": "crates.io", "gem": "RubyGems", "nuget": "NuGet",
+                   "composer": "Packagist", "hex": "Hex", "pub": "Pub"}
+_SCHEME_BY_KIND = {KIND_MAVEN: "Maven", "pypi": "PyPI", "npm": "npm", "nuget": "NuGet"}
 
-    query = build_query(component, env)
-    if query is None:
-        return None
-    return query.ecosystems[0] if query.ecosystems else None
+
+def _ecosystem_of(component: Component, env: EnvInventory) -> str | None:
+    """コンポーネントの版の比較規則（Maven、RPM など）。PURL の種類で決め、無ければコンポーネントの種類で決める。
+
+    以前は照合用の問い合わせ（OS の判別を含む）から決めていたため、OS が未対応のときや照合から外した
+    パッケージで比較規則が分からず、PEP 440 で比べてしまう不具合があった。
+    """
+    from .purl import parse_purl
+
+    ptype = parse_purl(component.purl).type
+    if ptype:
+        return _SCHEME_BY_PURL.get(ptype)
+    return _SCHEME_BY_KIND.get(component.kind)
 
 
 class Judge:

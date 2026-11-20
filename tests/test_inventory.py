@@ -6,8 +6,8 @@ from vuln_triage.inventory import (
     load_env_master,
     load_inventories,
     normalize_kb,
-    parse_purl,
 )
+from vuln_triage.purl import parse_purl
 from vuln_triage.models import KIND_CUSTOM, KIND_EXECUTABLE, KIND_MAVEN, KIND_OS_PACKAGE, KIND_PYPI, KIND_SOFTWARE
 
 
@@ -29,10 +29,14 @@ def test_detect_format():
 
 
 def test_parse_purl():
-    assert parse_purl("pkg:maven/org.apache/commons-text@1.9") == ("maven", "org.apache", "commons-text", "1.9")
-    assert parse_purl("pkg:deb/ubuntu/openssl@3.0.2-0ubuntu1?arch=amd64") == ("deb", "ubuntu", "openssl", "3.0.2-0ubuntu1")
-    assert parse_purl("pkg:npm/%40scope/pkg@1.0.0") == ("npm", "@scope", "pkg", "1.0.0")
-    assert parse_purl("not a purl") == ("", "", "", "")
+    parsed = parse_purl("pkg:maven/org.apache/commons-text@1.9")
+    assert (parsed.type, parsed.namespace, parsed.name, parsed.version) == ("maven", "org.apache", "commons-text", "1.9")
+    assert parsed.full_name == "org.apache:commons-text"
+    deb = parse_purl("pkg:deb/ubuntu/openssl@3.0.2-0ubuntu1?arch=amd64")
+    assert (deb.name, deb.version, deb.qualifiers) == ("openssl", "3.0.2-0ubuntu1", {"arch": "amd64"})
+    assert parse_purl("pkg:npm/%40scope/pkg@1.0.0").full_name == "@scope/pkg"
+    assert parse_purl("pkg:golang/github.com/cli/cli@v2.89.0#v2").full_name == "github.com/cli/cli/v2"
+    assert parse_purl("not a purl").type == ""
 
 
 def test_normalize_kb():

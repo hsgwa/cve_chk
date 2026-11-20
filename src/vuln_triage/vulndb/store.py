@@ -33,6 +33,9 @@ DEFAULT_AMAZON_MIRRORS = {
     "2": "http://amazonlinux.default.amazonaws.com/2/core/latest/x86_64/mirror.list",
     "2023": "https://al2023-repos-us-east-1-de612dc2.s3.dualstack.us-east-1.amazonaws.com/core/mirrors/latest/x86_64/mirror.list",
 }
+# Amazon Linux 2 の extras（kernel-5.10 などのトピック）。修正情報は core と別の updateinfo にある
+DEFAULT_AL2_EXTRAS_BASE = "http://amazonlinux.default.amazonaws.com/2"
+EXTRAS_PREFIX = f"{AMAZON_PREFIX}2:extras:"
 INDEX_FILE = "index.sqlite"
 _CVE = re.compile(r"^CVE-\d{4}-\d+$", re.IGNORECASE)
 
@@ -238,6 +241,17 @@ class VulnDB:
         conn.commit()
         return count
 
+    @staticmethod
+    def _relative_file(source: str) -> str:
+        """データの保存先（vulndb/ からの相対パス）。Windows で使えない文字（: など）は含めない。"""
+        if source.startswith(EXTRAS_PREFIX):
+            name = f"amazon-linux-2-extras-{source[len(EXTRAS_PREFIX):]}"
+        elif source.startswith(AMAZON_PREFIX):
+            name = f"amazon-linux-{source[len(AMAZON_PREFIX):]}"
+        else:
+            return "osv/" + re.sub(r'[<>:"/\\|?*]', "_", source) + ".zip"
+        return "amazon/" + re.sub(r'[<>:"/\\|?*]', "_", name) + ".zip"
+
     def _osv_url(self, ecosystem: str, name: str) -> str:
         base = self.settings.get("osv_url") or DEFAULT_OSV_URL
         return f"{base.rstrip('/')}/{urllib.parse.quote(ecosystem)}/{urllib.parse.quote(name)}"
@@ -302,7 +316,7 @@ class VulnDB:
             self.log(f"  変更一覧を取得できません（次回も全件を取得します）: {exc}")
             cursor = None
         url = self._osv_url(ecosystem, "all.zip")
-        relative = f"osv/{ecosystem}.zip"
+        relative = self._relative_file(ecosystem)
         self.log(f"ダウンロード中: {ecosystem}（{url}）")
         _download(url, self.dir / relative, self.fetch)
         self._close_zip(relative)
@@ -316,12 +330,30 @@ class VulnDB:
         for key in [k for k in self._records if k[0] == relative]:
             self._records.pop(key, None)
 
-    def _amazon_repo(self, release: str) -> tuple[str, str]:
-        """(updateinfo の URL, チェックサム) を返す。"""
+    def _mirror_list(self, release: str) -> str:
+        if release.startswith("2:extras:"):
+            base = self.settings.get("al2_extras_base") or DEFAULT_AL2_EXTRAS_BASE
+            topic = release[len("2:extras:"):]
+            return f"{base.rstrip('/')}/extras/{urllib.parse.quote(topic)}/latest/x86_64/mirror.list"
         mirrors = {**DEFAULT_AMAZON_MIRRORS, **(self.settings.get("amazon_mirrors") or {})}
         if release not in mirrors:
             raise VulnDBError(f"Amazon Linux {release} のリポジトリ URL が設定されていません（vulndb.amazon_mirrors）")
-        mirror_list = mirrors[release]
+        return mirrors[release]
+
+    def al2_extras_topics(self) -> list[str]:
+        """取得する Amazon Linux 2 の extras トピック（config の vulndb.amazon_extras。既定は全トピック）。"""
+        setting = self.settings.get("amazon_extras", "all")
+        if isinstance(setting, list):
+            return [str(t) for t in setting]
+        if str(setting).lower() in ("", "none", "false", "off"):
+            return []
+        base = self.settings.get("al2_extras_base") or DEFAULT_AL2_EXTRAS_BASE
+        catalog = json.loads(self.fetch(f"{base.rstrip('/')}/extras-catalog-x86_64-v2.json").decode("utf-8"))
+        return sorted({str(t["n"]) for t in catalog.get("topics") or [] if t.get("n")})
+
+    def _amazon_repo(self, release: str) -> tuple[str, str]:
+        """(updateinfo の URL, チェックサム) を返す。"""
+        mirror_list = self._mirror_list(release)
         bases = [line.strip() for line in self.fetch(mirror_list).decode("utf-8").splitlines() if line.strip()]
         # ミラー一覧と同じホストにも同じパスがある（CDN に届かない環境向け）
         list_host = urllib.parse.urlsplit(mirror_list)
@@ -338,7 +370,8 @@ class VulnDB:
                 match = re.search(r'<data type="updateinfo">(.*?)</data>', repomd, re.S)
                 href = re.search(r'href="([^"]+)"', match.group(1)) if match else None
                 if not href:
-                    raise VulnDBError("repomd.xml に updateinfo がありません")
+                    # リポジトリには届いたが、セキュリティ情報を持たない（extras の一部のトピック）
+                    return "", ""
                 checksum = re.search(r"<checksum[^>]*>\s*([0-9a-fA-F]+)\s*</checksum>", match.group(1))
                 return base + href.group(1), checksum.group(1).lower() if checksum else ""
             except Exception as exc:          # 次のミラーを試す
@@ -346,10 +379,30 @@ class VulnDB:
         raise VulnDBError("Amazon Linux のリポジトリに接続できません: " + " / ".join(errors))
 
     @staticmethod
-    def amazon_records(xml_text: bytes, release: str) -> Iterable[dict]:
-        """updateinfo.xml を OSV 形式の記録に変換する。"""
+    def stream_floor(fixed: str) -> str:
+        """修正版の系統の下限（エポック:メジャー.マイナー）。例 `5.10.35-31.135.amzn2` → `5.10`。"""
+        epoch, _, version = fixed.rpartition(":") if ":" in fixed else ("", "", fixed)
+        match = re.match(r"(\d+)(?:\.(\d+))?", version)
+        if not match:
+            return "0"
+        floor = match.group(1) + (f".{match.group(2)}" if match.group(2) else "")
+        return f"{epoch}:{floor}" if epoch and epoch != "0" else floor
+
+    @staticmethod
+    def amazon_records(xml_text: bytes, release: str, topic: str = "") -> list[dict]:
+        """updateinfo.xml を OSV 形式の記録に変換する。
+
+        extras のトピック（kernel-5.10、nginx1 など）の記録には、影響範囲の下限を付ける。下限は
+        「そのトピックでのそのパッケージの最も古い修正版」の系統（エポック:メジャー.マイナー）。
+        - kernel-5.10 → 5.10。kernel 4.14 や 5.15 のホストには当たらない。
+        - nginx1 のようにトピックの中で版が上がる（1.20 → 1.22）ものは 1.20。1.20 のホストに 1.22 系の修正も当たる。
+        告知ごとに下限を付けると、後者を見落とす（実データで確認した不具合）。エコシステムは core と同じ。
+        """
+        from .versions import compare_rpm
+
         ecosystem = f"{AMAZON_PREFIX}{release}"
         root = ET.fromstring(xml_text)
+        updates = []
         for update in root.iter("update"):
             advisory_id = (update.findtext("id") or "").strip()
             if not advisory_id:
@@ -362,25 +415,48 @@ class VulnDB:
                 epoch = package.get("epoch") or "0"
                 version = f"{package.get('version')}-{package.get('release')}"
                 fixed[name] = version if epoch == "0" else f"{epoch}:{version}"
+            updates.append((update, advisory_id, fixed))
+
+        floors: dict[str, str] = {}
+        if topic:
+            oldest: dict[str, str] = {}
+            for _, _, fixed in updates:
+                for name, version in fixed.items():
+                    if name not in oldest or compare_rpm(version, oldest[name]) < 0:
+                        oldest[name] = version
+            floors = {name: VulnDB.stream_floor(version) for name, version in oldest.items()}
+
+        records = []
+        for update, advisory_id, fixed in updates:
             cves = [r.get("id") for r in update.iter("reference") if r.get("type") == "cve" and r.get("id")]
-            yield {
+            issued = update.find("issued")
+            record = {
                 "id": advisory_id,
                 "aliases": list(dict.fromkeys(cves)),
                 "summary": (update.findtext("title") or "").strip(),
-                "published": (update.find("issued").get("date") if update.find("issued") is not None else ""),
-                "database_specific": {"severity": (update.findtext("severity") or "").strip().lower()},
+                "published": issued.get("date") if issued is not None else "",
+                "database_specific": {"severity": (update.findtext("severity") or "").strip().lower(),
+                                      **({"topic": topic} if topic else {})},
                 "affected": [
                     {"package": {"ecosystem": ecosystem, "name": name},
-                     "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": version}]}]}
+                     "ranges": [{"type": "ECOSYSTEM", "events": [
+                         {"introduced": floors.get(name, "0")}, {"fixed": version}]}]}
                     for name, version in sorted(fixed.items())
                 ],
             }
+            records.append(record)
+        return records
 
     def update_amazon(self, release: str, force_full: bool = False) -> str:
         source = f"{AMAZON_PREFIX}{release}"
-        relative = f"amazon/amazon-linux-{release}.zip"
+        topic = release[len("2:extras:"):] if release.startswith("2:extras:") else ""
+        relative = self._relative_file(source)
         info = self.sources().get(source) or {}
         url, checksum = self._amazon_repo(release)
+        if not url:
+            self._save_source(source, file=None, url="", updated_at=_now(), records=0, full_at=_now(), checksum="")
+            self.connect().commit()
+            return "脆弱性情報なし"
         if (not force_full and checksum and checksum == info.get("checksum")
                 and (self.dir / relative).is_file()):
             self._save_source(source, updated_at=_now())
@@ -392,7 +468,7 @@ class VulnDB:
         target.parent.mkdir(parents=True, exist_ok=True)
         temp = target.with_suffix(".zip.part")
         with zipfile.ZipFile(temp, "w", zipfile.ZIP_DEFLATED) as archive:
-            for record in self.amazon_records(xml_text, release):
+            for record in self.amazon_records(xml_text, "2" if topic else release, topic):
                 archive.writestr(f"{record['id']}.json", json.dumps(record, ensure_ascii=False))
         self._close_zip(relative)
         temp.replace(target)
@@ -402,10 +478,23 @@ class VulnDB:
     def update(self, sources: Iterable[str], force_full: bool = False) -> dict[str, str]:
         """データを更新する。戻り値は {データ名: エラー内容}（成功したものは含まない）。"""
         errors = {}
+        sources = list(dict.fromkeys(sources))
+        if f"{AMAZON_PREFIX}2" in sources:
+            # Amazon Linux 2 は core に加えて extras のトピック（kernel-5.10 など）も取る
+            try:
+                for topic in self.al2_extras_topics():
+                    name = f"{EXTRAS_PREFIX}{topic}"
+                    if name not in sources:
+                        sources.append(name)
+            except Exception as exc:
+                errors[f"{AMAZON_PREFIX}2 extras"] = f"トピックの一覧を取得できません: {exc}"
+                self.log(f"  失敗: Amazon Linux 2 extras の一覧: {exc}")
         for source in sources:
             try:
                 if source.startswith(AMAZON_PREFIX):
                     result = self.update_amazon(source[len(AMAZON_PREFIX):], force_full)
+                    if source.startswith(EXTRAS_PREFIX) and result in ("変更なし", "脆弱性情報なし"):
+                        continue          # 70 以上あるので変更なしは表示しない
                 else:
                     result = self.update_osv(source, force_full)
                 self.log(f"  {source}: {result}")
@@ -415,10 +504,18 @@ class VulnDB:
                 self.log(f"  失敗: {source}: {exc}")
         return errors
 
+    def unknown_ecosystems(self) -> list[str]:
+        """取得済みのデータに含まれる、分類されていない系統（coverage.py）。"""
+        from .coverage import unknown_ecosystems
+
+        if not self.exists():
+            return []
+        rows = self.connect().execute("SELECT DISTINCT ecosystem FROM entries")
+        return unknown_ecosystems(row[0] for row in rows)
+
     def import_zip(self, source: str, path: str | Path, url: str = "") -> int:
         """手元にある OSV 形式の zip を取り込む（ネットに出られない場合や試験用）。"""
-        relative = f"osv/{source}.zip" if not source.startswith(AMAZON_PREFIX) else \
-            f"amazon/amazon-linux-{source[len(AMAZON_PREFIX):]}.zip"
+        relative = self._relative_file(source)
         target = self.dir / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         self._close_zip(relative)

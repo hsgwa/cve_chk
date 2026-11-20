@@ -7,7 +7,7 @@ from __future__ import annotations
 import csv
 import re
 import unicodedata
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -41,11 +41,19 @@ def _nfkc(value: Any) -> str:
     return unicodedata.normalize("NFKC", _cell_text(value)).strip()
 
 
+_EXCEL_EPOCH = date(1899, 12, 30)
+
+
 def _parse_date(value: Any) -> date | None:
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
         return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        # 「日付」でなく「数値」書式のセルは Excel の通し番号（1900 年基準）になる。1990〜2100 年の範囲だけ日付とみなす
+        if 32874 <= value <= 73051:
+            return _EXCEL_EPOCH + timedelta(days=int(value))
+        return None
     match = _DATE.search(_nfkc(value))
     if not match:
         return None

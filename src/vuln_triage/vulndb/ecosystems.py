@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from urllib.parse import unquote
-
 from ..models import Component, EnvInventory
+from ..purl import parse_purl
 
 # PURL の種類 → OSV のエコシステム（ライブラリ）
 LIBRARY_ECOSYSTEMS = {
@@ -14,8 +13,15 @@ LIBRARY_ECOSYSTEMS = {
 }
 
 # カーネルのヘッダファイルだけを含むパッケージ（ソースパッケージが linux のため、そのままだと
-# カーネル本体の脆弱性がすべて当てはまってしまう。Trivy・Grype と同じく照合しない）
+# カーネル本体の脆弱性がすべて当てはまってしまう）。Trivy・Grype ともに照合しないことを実データで確認したもの。
+# linux-modules-* / linux-tools-common は Grype が検出するので残す。Amazon Linux の kernel-headers 等は
+# Amazon の告知に修正対象として明記され、Trivy・Grype とも検出するので残す（docs/DEFECTS.md）。
 KERNEL_HEADER_PACKAGES = {"linux-libc-dev"}
+KERNEL_HEADER_PATTERN = re.compile(r"^linux-headers-")
+
+
+def is_kernel_header_package(ptype: str, name: str) -> bool:
+    return ptype == "deb" and (name in KERNEL_HEADER_PACKAGES or bool(KERNEL_HEADER_PATTERN.match(name)))
 
 # 照合の単位となるデータの名前（OSV のダウンロード用 zip の名前、または Amazon Linux の版）
 AMAZON_PREFIX = "Amazon Linux:"
@@ -38,24 +44,12 @@ def normalize_package(ecosystem: str, name: str) -> str:
 
 
 def parse_purl_full(purl: str) -> tuple[str, str, str, str, dict[str, str]]:
-    """PURL を (type, namespace, name, version, qualifiers) に分ける。"""
-    if not purl or not purl.startswith("pkg:"):
-        return "", "", "", "", {}
-    body, _, subpath = purl[4:].partition("#")
-    body, _, query = body.partition("?")
-    qualifiers = {}
-    for pair in query.split("&") if query else []:
-        key, _, value = pair.partition("=")
-        qualifiers[key.lower()] = unquote(value)
-    ptype, _, rest = body.partition("/")
-    if "@" in rest:
-        rest, _, version = rest.rpartition("@")
-    else:
-        version = ""
-    namespace, _, name = rest.rpartition("/")
-    if subpath:
-        qualifiers["#subpath"] = unquote(subpath).strip("/")
-    return ptype.lower(), unquote(namespace), unquote(name), unquote(version), qualifiers
+    """PURL を (type, namespace, name, version, qualifiers) に分ける。subpath は qualifiers["#subpath"]。"""
+    parsed = parse_purl(purl)
+    qualifiers = dict(parsed.qualifiers)
+    if parsed.subpath:
+        qualifiers["#subpath"] = parsed.subpath
+    return parsed.type, parsed.namespace, parsed.name, parsed.version, qualifiers
 
 
 def _distro(qualifiers: dict[str, str], env: EnvInventory) -> tuple[str, str]:
@@ -75,7 +69,8 @@ def _source_name(value: str) -> str:
 
 
 def build_query(component: Component, env: EnvInventory) -> Query | None:
-    ptype, namespace, name, version, qualifiers = parse_purl_full(component.purl)
+    parsed = parse_purl(component.purl)
+    ptype, name, version, qualifiers = parsed.type, parsed.name, parsed.version, parsed.qualifiers
     if not ptype or not name:
         return None
     version = version or component.version
@@ -84,20 +79,13 @@ def build_query(component: Component, env: EnvInventory) -> Query | None:
 
     if ptype in LIBRARY_ECOSYSTEMS:
         ecosystem = LIBRARY_ECOSYSTEMS[ptype]
-        if ptype == "maven":
-            full = f"{namespace}:{name}" if namespace else name
-        elif ptype in ("npm", "golang", "composer") and namespace:
-            full = f"{namespace}/{name}"
-        else:
-            full = name
+        # Go の v2 以降のモジュールは pkg:golang/github.com/x/y@v2.1.0#v2 のように書かれる（full_name が扱う）
+        full = parsed.full_name
         if ptype == "golang":
-            # Go の v2 以降のモジュールは pkg:golang/github.com/x/y@v2.1.0#v2 のように書かれる
-            if qualifiers.get("#subpath"):
-                full = f"{full}/{qualifiers['#subpath']}"
             version = version.removeprefix("v")
         return Query(ecosystem, (ecosystem,), (normalize_package(ecosystem, full),), version, full)
 
-    if ptype == "deb" and name in KERNEL_HEADER_PACKAGES:
+    if is_kernel_header_package(ptype, name):
         return None                   # カーネルのヘッダだけのパッケージにカーネル本体の脆弱性は当てはまらない
     if ptype in ("deb", "rpm", "apk"):
         distro_id, distro_version = _distro(qualifiers, env)
@@ -113,7 +101,7 @@ def build_query(component: Component, env: EnvInventory) -> Query | None:
         if distro_id == "ubuntu":
             # 修正版が Ubuntu Pro（ESM）でしか出ていないものは Pro 用の情報にしか載らないので、両方を見る
             source, ecosystems = "Ubuntu", [f"Ubuntu:{distro_version}:LTS", f"Ubuntu:{distro_version}",
-                                            f"Ubuntu:Pro:{distro_version}:LTS"]
+                                            f"Ubuntu:Pro:{distro_version}:LTS", f"Ubuntu:Pro:{distro_version}"]
         elif distro_id == "debian":
             source, ecosystems = "Debian", [f"Debian:{major}"]
         elif distro_id == "amzn":
@@ -121,7 +109,9 @@ def build_query(component: Component, env: EnvInventory) -> Query | None:
             source = ecosystem = f"{AMAZON_PREFIX}{release}"
             ecosystems = [ecosystem]
         elif distro_id in ("rhel", "redhat"):
-            source, ecosystems = "Red Hat", [f"Red Hat:enterprise_linux:{major}:%"]
+            # RHEL 9 までは「enterprise_linux:9::appstream」の形、RHEL 10 からはマイナー版ごとの「enterprise_linux:10.2」の形
+            minor = distro_version if "." in distro_version else f"{major}.%"
+            source, ecosystems = "Red Hat", [f"Red Hat:enterprise_linux:{major}:%", f"Red Hat:enterprise_linux:{minor}"]
         elif distro_id == "rocky":
             source, ecosystems = "Rocky Linux", [f"Rocky Linux:{major}"]
         elif distro_id in ("almalinux", "alma"):
@@ -134,6 +124,19 @@ def build_query(component: Component, env: EnvInventory) -> Query | None:
         names = tuple(dict.fromkeys(normalize_package(source, n) for n in names))
         return Query(source, tuple(ecosystems), names, version, name)
     return None
+
+
+def skip_reason(component: Component) -> str:
+    """build_query が None を返した理由（照合しなかったものを利用者に示すため）。"""
+    parsed = parse_purl(component.purl)
+    if not parsed.type:
+        return ""
+    if is_kernel_header_package(parsed.type, parsed.name):
+        return "カーネルのヘッダ"
+    version = parsed.version or component.version
+    if not version or not re.search(r"\d", version):
+        return "版が不明"
+    return f"pkg:{parsed.type}"
 
 
 def needed_sources(envs: list[EnvInventory], config: dict | None = None) -> tuple[list[str], dict[str, int]]:

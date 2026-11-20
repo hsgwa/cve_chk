@@ -27,6 +27,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_delta_records": 3000,
         "score_sources": ["Debian"],
         "amazon_mirrors": {},
+        "amazon_extras": "all",
     },
     "trivy": {"path": "", "timeout_sec": 600, "extra_args": []},
     "msrc": {"enabled": True, "timeout_sec": 60, "eol_builds": []},

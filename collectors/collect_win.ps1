@@ -432,7 +432,12 @@ foreach ($product in $CustomProducts) {
                 if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
                     Add-Custom $name 'not_found' '' $target ''
                 } else {
-                    $output = (& cmd.exe /c $target 2>&1 | Out-String)
+                    # 標準エラーの行は ErrorRecord になり、そのまま文字列にすると例外の表示が混ざるので元の文字列を取り出す
+                    $output = (& cmd.exe /c $target 2>&1 | ForEach-Object {
+                        if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                            if ($null -ne $_.TargetObject) { "$($_.TargetObject)" } else { $_.Exception.Message }
+                        } else { "$_" }
+                    }) -join "`n"
                     Add-Custom $name 'found' (Get-Match $output $product.Regex) $target ''
                 }
             }

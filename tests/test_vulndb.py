@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 import json
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,7 @@ from vuln_triage.vulndb.scanner import evaluate, scan_with_vulndb, stale_sources
 from vuln_triage.vulndb.store import DELTA_FILE, VulnDB, parse_modified_ids
 from vuln_triage.vulndb.versions import (
     compare,
+    compare_apk,
     compare_dpkg,
     compare_maven,
     compare_rpm,
@@ -46,12 +48,23 @@ from conftest import make_env
     (compare_maven, "2.15.1", "2.7", 1),
     (compare_maven, "1.0-SNAPSHOT", "1.0", -1),
     (compare_maven, "1.0-sp1", "1.0", 1),
+    (compare_maven, "1.0-sp1", "1.0.1", -1),
+    (compare_maven, "696.v52535c46f4c9", "696.698.v9b4218eea50f", -1),     # Jenkins のプラグインの版
+    (compare_maven, "3.4.1-amzn-2", "3.4.1", 1),
     (compare_semver, "1.2.3-beta.1", "1.2.3", -1),
     (compare_semver, "v0.17.0", "0.17.0", 0),
     (compare_semver, "1.10.0", "1.9.9", 1),
     (compare_semver, "1.0.0-alpha.1", "1.0.0-alpha.beta", -1),
     (compare_rubygems, "1.0.0.pre", "1.0.0", -1),
     (compare_rubygems, "1.10", "1.9", 1),
+    (compare_apk, "7.80.0", "7.80.0-r2", -1),
+    (compare_apk, "1.1.1", "1.1.1b-r1", -1),
+    (compare_apk, "1.1.1i-r0", "1.1.1b-r1", 1),
+    (compare_apk, "2.0_rc1-r0", "2.0-r0", -1),
+    (compare_apk, "2.0_p1-r0", "2.0-r5", 1),
+    (compare_apk, "1.2-r10", "1.2-r9", 1),
+    (compare_apk, "9.6p1-r0", "9.6p2-r0", -1),
+    (compare_apk, "9.6p1-r0", "9.6-r0", 1),
 ])
 def test_version_schemes(func, a, b, expected):
     assert func(a, b) == expected
@@ -130,14 +143,19 @@ def test_library_queries():
 
 def test_os_package_queries():
     deb = query("pkg:deb/ubuntu/libavcodec60@7:6.1.1-3ubuntu5?arch=amd64&distro=ubuntu-24.04&upstream=ffmpeg")
-    assert deb.source == "Ubuntu" and deb.ecosystems == ("Ubuntu:24.04:LTS", "Ubuntu:24.04", "Ubuntu:Pro:24.04:LTS")
+    assert deb.source == "Ubuntu" and deb.ecosystems == (
+        "Ubuntu:24.04:LTS", "Ubuntu:24.04", "Ubuntu:Pro:24.04:LTS", "Ubuntu:Pro:24.04")
     assert deb.names == ("ffmpeg", "libavcodec60") and deb.version == "7:6.1.1-3ubuntu5"
     rpm = query("pkg:rpm/amzn/openssl-libs@1.0.2k-24.amzn2.0.4?arch=x86_64&epoch=1&distro=amzn-2"
                 "&upstream=openssl-1.0.2k-24.amzn2.0.4.src.rpm")
     assert rpm.source == "Amazon Linux:2" and rpm.names == ("openssl-libs", "openssl")
     assert rpm.version == "1:1.0.2k-24.amzn2.0.4"
     assert query("pkg:rpm/amzn/curl@8.0.1-1.amzn2023?distro=amzn-2023").source == "Amazon Linux:2023"
-    assert query("pkg:rpm/redhat/curl@7.76.1-26.el9?distro=rhel-9.3").ecosystems == ("Red Hat:enterprise_linux:9:%",)
+    assert query("pkg:rpm/redhat/curl@7.76.1-26.el9?distro=rhel-9.3").ecosystems == (
+        "Red Hat:enterprise_linux:9:%", "Red Hat:enterprise_linux:9.3")
+    assert query("pkg:rpm/redhat/curl@8.9.1-5.el10?distro=rhel-10.2").ecosystems == (
+        "Red Hat:enterprise_linux:10:%", "Red Hat:enterprise_linux:10.2")              # RHEL 10 の形
+    assert "Ubuntu:Pro:25.10" in query("pkg:deb/ubuntu/x@1.0?distro=ubuntu-25.10").ecosystems
     assert query("pkg:deb/debian/curl@7.88.1-10?distro=debian-12.4").ecosystems == ("Debian:12",)
     # PURL に OS が無ければ環境の OS 情報を使う
     assert query("pkg:rpm/amzn/curl@8.0.1-1", env_with("amzn", "2023")).source == "Amazon Linux:2023"
@@ -229,7 +247,7 @@ def test_update_downloads_osv_and_amazon_with_mirror_fallback(tmp_path):
             return gzip.compress(UPDATEINFO)
         raise OSError(f"unexpected {url}")
 
-    config = {"vulndb": {"osv_url": "https://osv.example.invalid",
+    config = {"vulndb": {"osv_url": "https://osv.example.invalid", "amazon_extras": [],
                          "amazon_mirrors": {"2": "http://mirror.example.invalid/2/core/latest/x86_64/mirror.list"}}}
     db = VulnDB(tmp_path / "db", config, fetch=fetch)
     assert db.update(["Maven", "Amazon Linux:2", "Nope"]) == {"Nope": "unexpected https://osv.example.invalid/Nope/all.zip"}
@@ -289,6 +307,12 @@ def test_db_update_cli(tmp_path, monkeypatch, examples):
     assert "Maven: 3 件" in result.output
 
     requested = []
+    # --import だけなら、取得済みの Maven をダウンロードし直さない
+    monkeypatch.setattr(store_module, "_fetch", lambda url: requested.append(url) or b"")
+    other = osv_zip(tmp_path / "c.zip", RECORDS)
+    result = runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db"), "--import", f"crates.io={other}"])
+    assert result.exit_code == 0, result.output
+    assert requested == []
 
     def fake_fetch(url):
         requested.append(url)
@@ -507,3 +531,136 @@ def test_ubuntu_pro_only_fix(tmp_path, config):
     esm = Component(name="ffmpeg", version="7:6.1.1-3ubuntu5+esm1", scannable=True,
                     purl="pkg:deb/ubuntu/ffmpeg@7:6.1.1-3ubuntu5+esm1?arch=amd64&distro=ubuntu-24.04")
     assert scan_with_vulndb([make_env(components=[esm])], db, config) == []
+
+
+
+# ------------------------------------------------------------------ Amazon Linux 2 の extras（kernel-5.10 など）
+
+KERNEL_510 = b"""<?xml version="1.0"?><updates>
+<update type="security"><id>ALAS2KERNEL-5.10-2024-001</id><title>kernel</title><severity>important</severity>
+<references><reference type="cve" id="CVE-2024-1086"/></references>
+<pkglist><collection><package name="kernel" version="5.10.210" release="201.852.amzn2" epoch="0" arch="x86_64"/>
+<package name="kernel-headers" version="5.10.210" release="201.852.amzn2" epoch="0" arch="x86_64"/></collection></pkglist>
+</update></updates>"""
+CORE_KERNEL = b"""<?xml version="1.0"?><updates>
+<update type="security"><id>ALAS2-2024-001</id><title>kernel</title><severity>important</severity>
+<references><reference type="cve" id="CVE-2024-1086"/></references>
+<pkglist><collection><package name="kernel" version="4.14.336" release="257.566.amzn2" epoch="0" arch="x86_64"/>
+</collection></pkglist></update></updates>"""
+
+
+def amazon_fetch(calls):
+    def fetch(url):
+        calls.append(url)
+        if url.endswith("extras-catalog-x86_64-v2.json"):
+            return json.dumps({"topics": [{"n": "kernel-5.10"}, {"n": "nginx1"}]}).encode()
+        if url.endswith("mirror.list"):
+            topic = "core" if "/core/" in url else url.split("/extras/")[1].split("/")[0]
+            return f"http://repo.invalid/{topic}/\n".encode()
+        if url.endswith("repomd.xml"):
+            digest = hashlib.sha256(url.split("/")[3].encode()).hexdigest().encode()
+            return (b'<repomd><data type="updateinfo"><checksum type="sha256">' + digest
+                    + b'</checksum><location href="repodata/updateinfo.xml.gz"/></data></repomd>')
+        if url.endswith("updateinfo.xml.gz"):
+            topic = url.split("/")[3]
+            body = {"core": CORE_KERNEL, "kernel-5.10": KERNEL_510}.get(topic, b"<updates/>")
+            return gzip.compress(body)
+        raise OSError(url)
+    return fetch
+
+
+def test_stream_floor():
+    assert VulnDB.stream_floor("5.10.210-201.852.amzn2") == "5.10"
+    assert VulnDB.stream_floor("2:8.2.15-1.amzn2") == "2:8.2"
+    assert VulnDB.stream_floor("1:9-1") == "1:9"
+    assert VulnDB.stream_floor("abc") == "0"
+
+
+def test_al2_extras(tmp_path, config):
+    calls = []
+    settings = {"vulndb": {"al2_extras_base": "http://al2.invalid/2",
+                           "amazon_mirrors": {"2": "http://al2.invalid/2/core/latest/x86_64/mirror.list"}}}
+    db = VulnDB(tmp_path / "db", settings, fetch=amazon_fetch(calls))
+    assert db.update(["Amazon Linux:2"]) == {}
+    assert set(db.sources()) == {"Amazon Linux:2", "Amazon Linux:2:extras:kernel-5.10", "Amazon Linux:2:extras:nginx1"}
+
+    def kernel(version):
+        return Component(name="kernel", version=version, scannable=True,
+                         purl=f"pkg:rpm/amzn/kernel@{version}?arch=x86_64&distro=amzn-2")
+
+    def scan(version):
+        env = make_env(components=[kernel(version)])
+        return [(f.cve_id, f.fixed_version) for f in scan_with_vulndb([env], db, {**config, **settings})]
+
+    # kernel 5.10 の古い版: core（4.14 系）の修正版より番号が新しいが、extras の情報で検出する
+    assert scan("5.10.200-198.748.amzn2") == [("CVE-2024-1086", "5.10.210-201.852.amzn2")]
+    assert scan("5.10.210-201.852.amzn2") == []
+    # kernel 4.14: core の情報で検出し、kernel-5.10 の記録は当てはめない
+    assert scan("4.14.300-1.amzn2") == [("CVE-2024-1086", "4.14.336-257.566.amzn2")]
+    assert scan("4.14.336-257.566.amzn2") == []
+    # 2 回目は変更なし（チェックサムが同じ）
+    calls.clear()
+    assert db.update(["Amazon Linux:2"]) == {}
+    assert not any(url.endswith("updateinfo.xml.gz") for url in calls)
+
+
+def test_al2_without_extras_is_reported(tmp_path, config):
+    settings = {"vulndb": {"amazon_extras": [], "amazon_mirrors": {"2": "http://al2.invalid/2/core/latest/x86_64/mirror.list"}}}
+    db = VulnDB(tmp_path / "db", settings, fetch=amazon_fetch([]))
+    db.update(["Amazon Linux:2"])
+    env = make_env(components=[Component(name="kernel", version="5.10.200-198.748.amzn2", scannable=True,
+                                         purl="pkg:rpm/amzn/kernel@5.10.200-198.748.amzn2?distro=amzn-2")])
+    scan_with_vulndb([env], db, config)               # 既定（all）なのに extras が無い
+    assert env.missing_db == {"Amazon Linux:2 extras": 1}
+    env2 = make_env(components=[Component(name="kernel", version="5.10.200-198.748.amzn2", scannable=True,
+                                          purl="pkg:rpm/amzn/kernel@5.10.200-198.748.amzn2?distro=amzn-2")])
+    scan_with_vulndb([env2], db, {**config, **settings})   # 明示的に取らない設定なら報告しない
+    assert env2.missing_db == {}
+
+
+
+def test_extras_floor_uses_oldest_fix_in_topic():
+    # nginx1 のようにトピックの中で版が上がる場合、1.20 のホストに 1.22 系の修正の告知も当たること
+    xml = b"""<updates>
+<update><id>ALAS2NGINX1-1</id><pkglist><collection>
+<package name="nginx" version="1.20.0" release="2.amzn2.0.4" epoch="1" arch="x86_64"/></collection></pkglist></update>
+<update><id>ALAS2NGINX1-2</id><references><reference type="cve" id="CVE-2023-44487"/></references><pkglist><collection>
+<package name="nginx" version="1.22.1" release="1.amzn2.0.3" epoch="1" arch="x86_64"/></collection></pkglist></update>
+</updates>"""
+    records = {r["id"]: r for r in VulnDB.amazon_records(xml, "2", "nginx1")}
+    later = records["ALAS2NGINX1-2"]["affected"][0]
+    assert later["ranges"][0]["events"] == [{"introduced": "1:1.20"}, {"fixed": "1:1.22.1-1.amzn2.0.3"}]
+    assert evaluate("Amazon Linux:2", "1:1.20.0-2.amzn2.0.4", later)[0] is True
+    assert evaluate("Amazon Linux:2", "1:1.18.0-1.amzn2", later)[0] is False      # 別系統（nginx1.12 など）
+    # core の記録には下限を付けない
+    assert VulnDB.amazon_records(xml, "2")[0]["affected"][0]["ranges"][0]["events"][0] == {"introduced": "0"}
+
+
+
+def test_ecosystem_coverage_classification():
+    from vuln_triage.vulndb.coverage import classify
+    used = ["Ubuntu:24.04:LTS", "Ubuntu:Pro:24.04:LTS", "Ubuntu:Pro:25.10", "Debian:12", "Red Hat:enterprise_linux:9::appstream",
+            "Red Hat:enterprise_linux:10.2", "Rocky Linux:9", "AlmaLinux:10", "Alpine:v3.20", "Amazon Linux:2",
+            "Amazon Linux:2023", "Maven", "PyPI"]
+    excluded = ["Ubuntu:Pro:FIPS-updates:22.04:LTS", "Ubuntu:Pro:Realtime:24.04:LTS", "Ubuntu:Nvidia-BlueField:24.04:LTS",
+                "Red Hat:rhel_eus:9.4::appstream", "Red Hat:enterprise_linux_eus:10.0", "Red Hat:openshift:4.14::el9",
+                "Red Hat:enterprise_linux_nvidia:10::el10", "GitHub Actions"]
+    assert [e for e in used if classify(e)[0] != "used"] == []
+    assert [e for e in excluded if classify(e)[0] != "excluded"] == []
+    assert classify("Ubuntu:Pro:Something-New:26.04:LTS")[0] == "unknown"   # 新しい系統は分類なし → 警告
+    assert classify("Amazon Linux:2024")[0] == "unknown"
+
+
+
+def test_informational_flag_is_per_package(tmp_path, config):
+    record = {"id": "RUSTSEC-2026-9999", "aliases": ["CVE-2026-9999"], "affected": [
+        {"package": {"ecosystem": "crates.io", "name": "a"}, "database_specific": {"informational": "unmaintained"},
+         "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}]}]},
+        {"package": {"ecosystem": "crates.io", "name": "b"},
+         "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "2.0.0"}]}]}]}
+    db = VulnDB(tmp_path / "db")
+    db.import_zip("crates.io", osv_zip(tmp_path / "c.zip", [record]))
+    a = Component(name="a", version="1.0.0", purl="pkg:cargo/a@1.0.0", scannable=True)
+    b = Component(name="b", version="1.0.0", purl="pkg:cargo/b@1.0.0", scannable=True)
+    findings = scan_with_vulndb([make_env(components=[a, b])], db, config)
+    assert [f.pkg_name for f in findings] == ["b"]      # a は参考情報、b は脆弱性として残る

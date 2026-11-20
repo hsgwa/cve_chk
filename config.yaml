@@ -38,6 +38,8 @@ vulndb:
   max_delta_records: 3000 # 差分がこの件数を超えたら全件を取り直す
   # Amazon Linux の公式情報には CVSS が無いので、点数を引くために一緒に取るデータ
   score_sources: [Debian]
+  # Amazon Linux 2 の extras（kernel-5.10 など）のうち取得するトピック。all（既定・推奨）、一覧、[]（取らない）
+  amazon_extras: all
   # Amazon Linux の公式リポジトリ（ミラー一覧）。近いリージョンに変えてもよい
   amazon_mirrors:
     "2": http://amazonlinux.default.amazonaws.com/2/core/latest/x86_64/mirror.list

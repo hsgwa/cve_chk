@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from ..models import EnvInventory, Finding
-from .ecosystems import Query, build_query, normalize_package
-from .store import VulnDB, record_ids
+from .ecosystems import Query, build_query, normalize_package, skip_reason
+from .ecosystems import AMAZON_PREFIX
+from .store import EXTRAS_PREFIX, VulnDB, record_ids
 from .versions import UncomparableVersion, compare
 
 _EVENT_ORDER = {"introduced": 0, "last_affected": 1, "fixed": 2, "limit": 3}
@@ -105,6 +106,11 @@ def stale_sources(db: VulnDB, config: dict[str, Any], now: datetime | None = Non
     return result
 
 
+def _source_of(component, env: EnvInventory) -> str:
+    query = build_query(component, env)
+    return query.source if query else ""
+
+
 def _first_fixed(affected: dict) -> str:
     for range_ in affected.get("ranges") or []:
         for event in range_.get("events") or []:
@@ -113,12 +119,15 @@ def _first_fixed(affected: dict) -> str:
     return ""
 
 
-def _is_informational(record: dict) -> bool:
-    """脆弱性ではない参考情報（RustSec の「保守終了」など）か。Trivy と同じく対象外にする。"""
-    for affected in record.get("affected") or []:
-        if (affected.get("database_specific") or {}).get("informational"):
-            return True
-    return bool((record.get("database_specific") or {}).get("informational"))
+def _is_informational(record: dict, affected: dict | None = None) -> bool:
+    """脆弱性ではない参考情報（RustSec の「保守終了」など）か。Trivy と同じく対象外にする。
+
+    記録全体の印と、照合しているパッケージの項目の印だけを見る（他のパッケージの項目の印で、
+    記録ごと捨てないようにするため）。
+    """
+    if (record.get("database_specific") or {}).get("informational"):
+        return True
+    return bool(affected is not None and (affected.get("database_specific") or {}).get("informational"))
 
 
 def pick_score(scores: dict[str, float], priority: list[str]) -> float | None:
@@ -141,18 +150,30 @@ def scan_with_vulndb(
     findings: list[Finding] = []
     for env in envs:
         missing: Counter = Counter()
+        unsupported: Counter = Counter()
         for component in env.components:
             if not component.scannable or not component.purl:
                 continue
             query = build_query(component, env)
             if query is None:
+                reason = skip_reason(component)
+                if reason:
+                    unsupported[reason] += 1
                 continue
             if not query.ecosystems or query.source not in available:
                 missing[query.source] += 1
                 continue
             component.checked = True
             findings.extend(_scan_component(env, component, query, db, priority))
+        # Amazon Linux 2 は extras（kernel-5.10 など）の情報が無いと、そのパッケージの脆弱性を見落とす
+        al2 = sum(1 for c in env.components if c.checked and _source_of(c, env) == f"{AMAZON_PREFIX}2")
+        extras_expected = settings.get("amazon_extras", "all") not in ([], "", "none", False)
+        if al2 and extras_expected and not any(name.startswith(EXTRAS_PREFIX) for name in available):
+            missing[f"{AMAZON_PREFIX}2 extras"] += al2
         env.missing_db = dict(missing)
+        if unsupported:
+            # 黙って飛ばさず、照合しなかったものを件数で示す
+            env.warnings.append("照合の対象外: " + "、".join(f"{k} {v} 件" for k, v in unsupported.most_common()))
         for source, count in sorted(missing.items()):
             env.warnings.append(f"{source} の脆弱性データが無いため、{count} 件のパッケージを照合していません")
         log(f"照合: {env.name}（{sum(1 for c in env.components if c.checked)} 件）")
@@ -182,6 +203,8 @@ def _scan_component(env: EnvInventory, component, query: Query, db: VulnDB, prio
                 continue
             # 1つの記録に複数のパッケージが載っていることがあるので、名前も確かめる
             if normalize_package(package_ecosystem, str(package.get("name") or "")) not in query.names:
+                continue
+            if _is_informational(record, affected):
                 continue
             entries.append((package_ecosystem, affected))
         # Ubuntu: 通常の情報があればそれを使い、Pro（ESM）の情報しか無いときだけ Pro の情報で判定する

@@ -13,8 +13,8 @@ import json
 import re
 from pathlib import Path, PureWindowsPath
 from typing import Any
-from urllib.parse import unquote
 
+from .purl import parse_purl
 from .models import (
     KIND_CUSTOM,
     KIND_EXECUTABLE,
@@ -58,17 +58,6 @@ def read_text(path: Path) -> str:
 def normalize_kb(text: str) -> str | None:
     match = _KB.search(str(text or ""))
     return f"KB{match.group(1)}" if match else None
-
-
-def parse_purl(purl: str) -> tuple[str, str, str, str]:
-    """PURL を (type, namespace, name, version) に分ける。読めなければ空文字。"""
-    if not purl or not purl.startswith("pkg:"):
-        return "", "", "", ""
-    body = purl[4:].split("#", 1)[0].split("?", 1)[0]
-    ptype, _, rest = body.partition("/")
-    rest, _, version = rest.rpartition("@") if "@" in rest else (rest, "", "")
-    namespace, _, name = rest.rpartition("/")
-    return ptype.lower(), unquote(namespace), unquote(name), unquote(version)
 
 
 def detect_format(data: Any) -> str:
@@ -138,12 +127,16 @@ def load_cyclonedx(data: dict, env: EnvInventory, source: str) -> None:
         if item is metadata or ctype == "file" or not item.get("name"):
             continue
         purl = item.get("purl", "") or ""
-        ptype, namespace, pname, pversion = parse_purl(purl)
+        parsed = parse_purl(purl)
+        ptype, namespace, pname, pversion = parsed.type, parsed.namespace, parsed.name, parsed.version
         kind = _PURL_KIND.get(ptype, KIND_OTHER)
         if kind == KIND_OS_PACKAGE and env.os_family == "unknown":
             env.os_family = "linux"
         group = item.get("group") or (namespace if kind == KIND_MAVEN else "")
-        extra = tuple(n for n in {pname, f"{namespace}/{pname}" if namespace and pname else ""} if n)
+        # 別名: PURL の名前と、エコシステムでの正式名（Go の v2 モジュールは subpath 付き）
+        extra = tuple(n for n in {pname, parsed.full_name if pname else ""} if n)
+        if ptype == "golang" and parsed.subpath:
+            extra = tuple(n for n in extra if n != pname)   # v1 の名前（github.com/x/y の y）では当てない
         env.components.append(Component(
             name=str(item["name"]), version=str(item.get("version") or pversion or ""), kind=kind,
             group=str(group or ""), purl=purl, path=_component_path(item), source=source,

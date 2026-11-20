@@ -90,7 +90,8 @@ def db_update(inventory_dir, ecosystems, imports, force_full, db_dir, config_pat
             click.echo(f"{name}: {info['records']} 件（最終確認 {info['updated_at']}、全件取得 {info['full_at'] or '-'}）")
         return
 
-    targets = list(existing)
+    # --import だけを指定したときは取り込みだけ行う（取得済みの他のデータをダウンロードし直さない）
+    targets = [] if imports and not ecosystems and not inventory_dir else list(existing)
     for name in ecosystems:
         if name not in targets:
             targets.append(name)
@@ -120,7 +121,11 @@ def db_update(inventory_dir, ecosystems, imports, force_full, db_dir, config_pat
         except Exception as exc:
             errors[name] = str(exc)
     errors.update(db.update(targets, force_full=force_full))
+    unknown = db.unknown_ecosystems()
     db.close()
+    if unknown:
+        _echo("注意: 脆弱性データに、分類されていない系統があります（照合に使っていません）: " + "、".join(unknown[:20]))
+        _echo("      修正情報がこの系統にしか無い脆弱性は見落とします。docs/DEFECTS.md の手順で確認してください。")
     if errors:
         for name, message in errors.items():
             _echo(f"エラー: {name}: {message}")

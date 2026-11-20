@@ -101,3 +101,25 @@ def test_example_files_agree(examples, config):
     csv_items = load_advisories(examples / "advisory_list.csv", config)
     assert [a.key for a in xlsx] == [a.key for a in csv_items]
     assert len(xlsx) == 11
+
+
+
+def test_cell_types_for_every_field(tmp_path, config):
+    """Excel のセルの型（文字列・整数・小数・日付・日時・真偽・空）を、すべての項目で受け付けること。"""
+    from datetime import datetime
+    header = ["通達番号", "CVE番号", "製品名", "影響バージョン", "公表日", "社内ランク", "対応期限(日)", "備考"]
+    rows = [
+        ["A1", "CVE-2024-0001", "x", "<1.0", date(2026, 11, 2), "Rank-A", 14, "文字列"],
+        [2, None, 123, 9.5, datetime(2026, 11, 2, 9, 30), None, 14.0, 1.5],
+        [3.0, None, "y", True, 46328, None, "14日", None],          # 46328 = 2026-11-02 の通し番号
+        ["A4", None, "z", "", "2026年11月2日", None, None, None],
+        ["A5", None, "w", "", 12, None, None, None],                 # 小さい数値は日付とみなさない
+    ]
+    items = load_advisories(make_xlsx(tmp_path / "a.xlsx", [header, *rows]), config)
+    by_id = {a.advisory_id: a for a in items}
+    assert set(by_id) == {"A1", "2", "3", "A4", "A5"}
+    assert by_id["2"].product_name == "123" and by_id["2"].affected_version == "9.5" and by_id["2"].note == "1.5"
+    assert by_id["2"].published_date == date(2026, 11, 2) and by_id["2"].deadline_days == 14
+    assert by_id["3"].published_date == date(2026, 11, 2) and by_id["3"].deadline_days == 14
+    assert by_id["A4"].published_date == date(2026, 11, 2)
+    assert by_id["A5"].published_date is None

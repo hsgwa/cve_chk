@@ -230,10 +230,9 @@ def _maven_item_cmp(x, y) -> int:
     if y is None:
         y = (1, 5, "")
     if x[0] != y[0]:
-        # 数字 > 修飾子（ただし修飾子が sp などの後付けなら別）
-        if x[0] == 0:
-            return 1 if y[1] <= 5 else -1
-        return -1 if x[1] <= 5 else 1
+        # Maven の ComparableVersion と同じく、同じ位置どうしなら数字の方が常に大きい
+        # （例 696.698.v9b42 > 696.v52535。以前は未知の英字を数字より大きく扱っていた）
+        return 1 if x[0] == 0 else -1
     if x[1] != y[1]:
         return _sign(x[1] - y[1])
     return (x[2] > y[2]) - (x[2] < y[2])
@@ -274,6 +273,43 @@ def compare_rubygems(a: str, b: str) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- Alpine（apk）
+
+_APK = re.compile(r"^(\d+(?:\.\d+)*)([a-z]?\d*)((?:_(?:alpha|beta|pre|rc|cvs|svn|git|hg|p)\d*)*)(?:~[0-9a-f]+)?(?:-r(\d+))?$")
+_APK_SUFFIX = {"alpha": -4, "beta": -3, "pre": -2, "rc": -1, "cvs": 1, "svn": 2, "git": 3, "hg": 4, "p": 5}
+
+
+def _apk_key(version: str) -> tuple:
+    match = _APK.match(version.strip())
+    if not match:
+        raise UncomparableVersion(version)
+    numbers = [int(x) for x in match.group(1).split(".")]
+    # 英字の後の数字（openssh の 9.6p1 など）は英字と数字の組として比べる
+    letter = re.match(r"([a-z]?)(\d*)", match.group(2))
+    letter_key = (letter.group(1), int(letter.group(2) or 0))
+    suffixes = [(_APK_SUFFIX[name], int(num or 0))
+                for name, num in re.findall(r"_(alpha|beta|pre|rc|cvs|svn|git|hg|p)(\d*)", match.group(3))]
+    return numbers, letter_key, suffixes, int(match.group(4) or 0)
+
+
+def compare_apk(a: str, b: str) -> int:
+    """Alpine の版（例 `1.1.1b-r1`、`2.0_rc1-r0`）の比較。-rN はリビジョン、末尾の英字は小さな改版。"""
+    na, la, sa, ra = _apk_key(a)
+    nb, lb, sb, rb = _apk_key(b)
+    width = max(len(na), len(nb))
+    na, nb = na + [0] * (width - len(na)), nb + [0] * (width - len(nb))
+    if na != nb:
+        return 1 if na > nb else -1
+    if la != lb:
+        return 1 if la > lb else -1
+    for index in range(max(len(sa), len(sb))):
+        x = sa[index] if index < len(sa) else (0, 0)
+        y = sb[index] if index < len(sb) else (0, 0)
+        if x != y:
+            return 1 if x > y else -1
+    return _sign(ra - rb)
+
+
 # ---------------------------------------------------------------- 汎用
 
 def compare_generic(a: str, b: str) -> int:
@@ -298,6 +334,7 @@ SCHEMES: dict[str, Compare] = {
     "semver": compare_semver,
     "maven": compare_maven,
     "rubygems": compare_rubygems,
+    "apk": compare_apk,
     "generic": compare_generic,
 }
 
@@ -316,6 +353,10 @@ def scheme_for(ecosystem: str) -> str:
         return "maven"
     if base == "RubyGems":
         return "rubygems"
+    if base == "Alpine":
+        return "apk"
+    if base == "Packagist":
+        return "semver"
     return "generic"
 
 
