@@ -256,7 +256,7 @@ python -m vuln_triage run          --inventory-dir inventory --env-master env_ma
 - **対象外**: コンテナの中身、Lambda の実行環境そのもの、AWS マネージドサービス側、Windows の Go / Rust 製 exe の内部依存。
 - **取りこぼしうるもの**: 権限不足で読めなかったフォルダ、走査対象に入れなかったフォルダ、ネットワークドライブ上のソフト、表に登録していない商用ソフト。「収集状況」シートで確認してください。
 - **判定の限界**: 脆弱性データ（OSV.dev、Amazon Linux の公式情報）に無い脆弱性は検出されません。「影響あり」は版の一致であり、実際に攻撃可能かは判定しません。製品名の表記が違うと「未使用」になります。
-- **照合の精度（Trivy との比較で確認済み）**: Amazon Linux 2 / 2023 の OS パッケージと、Java・Python・npm・Go・Rust のライブラリは、Trivy の検出をすべて拾えることを確認しました。Ruby は Trivy 独自のデータ源の分だけ少なくなります。**Ubuntu / Debian の OS パッケージは、データ源の違いから Trivy と結果が大きく異なります**（参考扱い）。
+- **照合の精度**: Trivy・Grype・OSV-Scanner と同じ SBOM で結果を比べました（[docs/COMPARISON.md](docs/COMPARISON.md)）。Amazon Linux 2 / 2023 の OS パッケージは Grype と完全に一致し、Java・Python・npm・Go・Rust のライブラリは他ツールの共通部分をすべて含み、Ubuntu の OS パッケージも Grype とほぼ一致しました。他の3ツールがそろって検出していて本ツールだけが見落としたものは 0 件です。Ruby は Trivy 独自のデータ源の分だけ少なくなります。実行ファイル自体（ruby・python・node のバイナリなど）の照合は行いません。
 - **Amazon Linux**: 取得するのは x86_64 の core リポジトリの情報です（arm64 も同じ版番号のため流用）。amazon-linux-extras のトピックや EMR 独自のパッケージは含みません。公式情報に CVSS が無いため、Debian のデータの同じ CVE から点数を引いています（見つからなければ「CVSS 不明」で Rank-C、備考に Amazon の深刻度を表示）。
 - **Windows 用スクリプトは Windows 実機では未検証です**（Linux 上の PowerShell 7 で、ファイル解析の部分だけ確認済み）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
 - **Windows OS のビルド番号判定と `--resolve-hashes` は、実際の外部サービスに接続した確認ができていません。** 初回実行時に「取得できませんでした」と出る、または明らかにおかしい結果になる場合は連絡してください。

@@ -13,6 +13,10 @@ LIBRARY_ECOSYSTEMS = {
     "cargo": "crates.io", "gem": "RubyGems", "composer": "Packagist", "hex": "Hex", "pub": "Pub",
 }
 
+# カーネルのヘッダファイルだけを含むパッケージ（ソースパッケージが linux のため、そのままだと
+# カーネル本体の脆弱性がすべて当てはまってしまう。Trivy・Grype と同じく照合しない）
+KERNEL_HEADER_PACKAGES = {"linux-libc-dev"}
+
 # 照合の単位となるデータの名前（OSV のダウンロード用 zip の名前、または Amazon Linux の版）
 AMAZON_PREFIX = "Amazon Linux:"
 
@@ -70,7 +74,7 @@ def _source_name(value: str) -> str:
     return match.group(1) if match else value
 
 
-def build_query(component: Component, env: EnvInventory, ubuntu_pro: bool = False) -> Query | None:
+def build_query(component: Component, env: EnvInventory) -> Query | None:
     ptype, namespace, name, version, qualifiers = parse_purl_full(component.purl)
     if not ptype or not name:
         return None
@@ -93,6 +97,8 @@ def build_query(component: Component, env: EnvInventory, ubuntu_pro: bool = Fals
             version = version.removeprefix("v")
         return Query(ecosystem, (ecosystem,), (normalize_package(ecosystem, full),), version, full)
 
+    if ptype == "deb" and name in KERNEL_HEADER_PACKAGES:
+        return None                   # カーネルのヘッダだけのパッケージにカーネル本体の脆弱性は当てはまらない
     if ptype in ("deb", "rpm", "apk"):
         distro_id, distro_version = _distro(qualifiers, env)
         names = [name]
@@ -105,9 +111,9 @@ def build_query(component: Component, env: EnvInventory, ubuntu_pro: bool = Fals
             version = f"{qualifiers['epoch']}:{version}"
         major = distro_version.split(".", 1)[0]
         if distro_id == "ubuntu":
-            source, ecosystems = "Ubuntu", [f"Ubuntu:{distro_version}:LTS", f"Ubuntu:{distro_version}"]
-            if ubuntu_pro:
-                ecosystems.append(f"Ubuntu:Pro:{distro_version}:LTS")
+            # 修正版が Ubuntu Pro（ESM）でしか出ていないものは Pro 用の情報にしか載らないので、両方を見る
+            source, ecosystems = "Ubuntu", [f"Ubuntu:{distro_version}:LTS", f"Ubuntu:{distro_version}",
+                                            f"Ubuntu:Pro:{distro_version}:LTS"]
         elif distro_id == "debian":
             source, ecosystems = "Debian", [f"Debian:{major}"]
         elif distro_id == "amzn":
@@ -140,7 +146,7 @@ def needed_sources(envs: list[EnvInventory], config: dict | None = None) -> tupl
         for component in env.components:
             if not component.purl:
                 continue
-            query = build_query(component, env, bool(settings.get("ubuntu_pro")))
+            query = build_query(component, env)
             if query is None:
                 continue
             if not query.ecosystems:

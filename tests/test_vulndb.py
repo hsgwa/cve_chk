@@ -124,12 +124,13 @@ def test_library_queries():
     assert query("pkg:golang/stdlib@go1.22.0") is not None
     assert query("pkg:gem/bundler@UNKNOWN") is None                     # 版が不明
     assert query("pkg:github/actions/checkout@v4") is None               # 対象外の種類
+    assert query("pkg:deb/ubuntu/linux-libc-dev@6.8.0-149.149?distro=ubuntu-24.04&upstream=linux") is None
     assert query("pkg:maven/a/b", version="") is None
 
 
 def test_os_package_queries():
     deb = query("pkg:deb/ubuntu/libavcodec60@7:6.1.1-3ubuntu5?arch=amd64&distro=ubuntu-24.04&upstream=ffmpeg")
-    assert deb.source == "Ubuntu" and deb.ecosystems == ("Ubuntu:24.04:LTS", "Ubuntu:24.04")
+    assert deb.source == "Ubuntu" and deb.ecosystems == ("Ubuntu:24.04:LTS", "Ubuntu:24.04", "Ubuntu:Pro:24.04:LTS")
     assert deb.names == ("ffmpeg", "libavcodec60") and deb.version == "7:6.1.1-3ubuntu5"
     rpm = query("pkg:rpm/amzn/openssl-libs@1.0.2k-24.amzn2.0.4?arch=x86_64&epoch=1&distro=amzn-2"
                 "&upstream=openssl-1.0.2k-24.amzn2.0.4.src.rpm")
@@ -474,3 +475,35 @@ def test_python_module_entry():
     import sys
     result = subprocess.run([sys.executable, "-m", "vuln_triage", "--help"], capture_output=True, text=True)
     assert result.returncode == 0 and "db-update" in result.stdout
+
+
+
+def test_ubuntu_pro_only_fix(tmp_path, config):
+    def ubuntu(record_id, entries):
+        return {"id": record_id, "upstream": [record_id.removeprefix("UBUNTU-")], "affected": [
+            {"package": {"ecosystem": eco, "name": "ffmpeg"},
+             "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": fixed}]}]}
+            for eco, fixed in entries]}
+
+    records = [
+        # 修正版が Ubuntu Pro にしか無い → 通常の 24.04 は影響あり
+        ubuntu("UBUNTU-CVE-2023-49501", [("Ubuntu:Pro:24.04:LTS", "7:6.1.1-3ubuntu5+esm1")]),
+        # 通常の修正がある → Pro の情報は使わない（修正済みの版なので検出しない）
+        ubuntu("UBUNTU-CVE-2024-0001", [("Ubuntu:24.04:LTS", "7:6.1.1-3ubuntu4"),
+                                        ("Ubuntu:Pro:24.04:LTS", "7:6.1.1-3ubuntu5+esm9")]),
+    ]
+    db = VulnDB(tmp_path / "db")
+    db.import_zip("Ubuntu", osv_zip(tmp_path / "u.zip", records))
+    deb = Component(name="ffmpeg", version="7:6.1.1-3ubuntu5", scannable=True,
+                    purl="pkg:deb/ubuntu/ffmpeg@7:6.1.1-3ubuntu5?arch=amd64&distro=ubuntu-24.04")
+    findings = scan_with_vulndb([make_env(components=[deb])], db, config)
+    assert [(f.cve_id, f.fixed_version) for f in findings] == [("CVE-2023-49501", "7:6.1.1-3ubuntu5+esm1")]
+    assert "Ubuntu Pro" in findings[0].title
+    # 通常の配布物の版は、Pro の修正版より番号が新しくても Pro の修正を含まない → 未修正
+    newer = Component(name="ffmpeg", version="7:6.1.1-3ubuntu6", scannable=True,
+                      purl="pkg:deb/ubuntu/ffmpeg@7:6.1.1-3ubuntu6?arch=amd64&distro=ubuntu-24.04")
+    assert [f.cve_id for f in scan_with_vulndb([make_env(components=[newer])], db, config)] == ["CVE-2023-49501"]
+    # Pro の版（+esm）を入れていれば、版番号で判定する
+    esm = Component(name="ffmpeg", version="7:6.1.1-3ubuntu5+esm1", scannable=True,
+                    purl="pkg:deb/ubuntu/ffmpeg@7:6.1.1-3ubuntu5+esm1?arch=amd64&distro=ubuntu-24.04")
+    assert scan_with_vulndb([make_env(components=[esm])], db, config) == []

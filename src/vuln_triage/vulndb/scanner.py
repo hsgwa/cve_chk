@@ -105,6 +105,14 @@ def stale_sources(db: VulnDB, config: dict[str, Any], now: datetime | None = Non
     return result
 
 
+def _first_fixed(affected: dict) -> str:
+    for range_ in affected.get("ranges") or []:
+        for event in range_.get("events") or []:
+            if event.get("fixed"):
+                return str(event["fixed"])
+    return ""
+
+
 def _is_informational(record: dict) -> bool:
     """脆弱性ではない参考情報（RustSec の「保守終了」など）か。Trivy と同じく対象外にする。"""
     for affected in record.get("affected") or []:
@@ -136,7 +144,7 @@ def scan_with_vulndb(
         for component in env.components:
             if not component.scannable or not component.purl:
                 continue
-            query = build_query(component, env, bool(settings.get("ubuntu_pro")))
+            query = build_query(component, env)
             if query is None:
                 continue
             if not query.ecosystems or query.source not in available:
@@ -166,6 +174,7 @@ def _scan_component(env: EnvInventory, component, query: Query, db: VulnDB, prio
         fixed = ""
         if _is_informational(record):
             continue
+        entries = []
         for affected in record.get("affected") or []:
             package = affected.get("package") or {}
             package_ecosystem = str(package.get("ecosystem") or "")
@@ -174,7 +183,16 @@ def _scan_component(env: EnvInventory, component, query: Query, db: VulnDB, prio
             # 1つの記録に複数のパッケージが載っていることがあるので、名前も確かめる
             if normalize_package(package_ecosystem, str(package.get("name") or "")) not in query.names:
                 continue
-            result, result_fixed = evaluate(ecosystem, query.version, affected)
+            entries.append((package_ecosystem, affected))
+        # Ubuntu: 通常の情報があればそれを使い、Pro（ESM）の情報しか無いときだけ Pro の情報で判定する
+        standard = [e for e in entries if ":Pro:" not in e[0]]
+        pro_only = bool(entries) and not standard
+        for package_ecosystem, affected in (standard or entries):
+            if pro_only and "esm" not in query.version:
+                # Pro の修正は通常の配布物に入らないので、Pro の版を入れていなければ版番号によらず未修正
+                hit, fixed = True, fixed or _first_fixed(affected)
+                break
+            result, result_fixed = evaluate(package_ecosystem, query.version, affected)
             if result:
                 hit, fixed = True, fixed or result_fixed
                 break
@@ -190,6 +208,8 @@ def _scan_component(env: EnvInventory, component, query: Query, db: VulnDB, prio
         title = str(record.get("summary") or "")
         if record.get("id") and not title.startswith(str(record["id"])):
             title = f"{record['id']}: {title}" if title else str(record["id"])
+        if pro_only:
+            title = f"修正版は Ubuntu Pro（ESM）でのみ提供 / {title}"
         for vuln_id in cves or [str(record.get("id"))]:
             results.append(Finding(
                 env=env.name, cve_id=vuln_id, pkg_name=query.display, installed_version=query.version,

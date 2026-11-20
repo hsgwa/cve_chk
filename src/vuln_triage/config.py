@@ -25,7 +25,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_age_days": 1,
         "full_refresh_days": 7,
         "max_delta_records": 3000,
-        "ubuntu_pro": False,
         "score_sources": ["Debian"],
         "amazon_mirrors": {},
     },
