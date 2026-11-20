@@ -58,6 +58,19 @@ Windows の精度を上げる工夫（確認結果: exe 不可／Java・Python �
 | `node_packages` | `node_modules/**/package.json` の name/version | npm |
 | `dotnet_packages` | `*.deps.json` の libraries | NuGet |
 
+### Windows での syft 代替の検討結果
+syft は Go 製の単一バイナリで、Windows 向けは `syft.exe` しか配布されていない（jar・dll・スクリプト版は無い）。代替を検討した結果、**現行の「ps1 自前解析 + jbom.jar」を採用**する。
+| 方法 | 判断 | 理由 |
+|---|---|---|
+| ps1 自前解析 + jbom.jar | **採用** | 持ち込みがテキストと jar だけ。追加の前提なし |
+| Linux 上の syft で Windows のファイルを読む（フォルダコピー / 共有 / EBS スナップショットを Linux に接続） | 不採用（現状は実施不可） | 精度は syft と同等になるが、AWS 側の操作や Linux への持ち出しができない |
+| Amazon Inspector の SBOM エクスポート、SSM での一括実行 | 不採用（現状は利用不可） | 対象環境で使えない／権限不明 |
+| WSL 上で Linux 版 syft | 不採用 | 対象 Windows に WSL が無い |
+| 自作 Python 収集スクリプト | 不採用 | Python が無い端末用に ps1 も必要で二重実装になる |
+| cdxgen / Microsoft sbom-tool / OWASP Dependency-Check | 不採用 | Node.js や .NET ランタイムが必要、jar の中身を見ない、脆弱性 DB の持ち込みが必要、のいずれか |
+- 自前解析が syft より弱い点: Go/Rust バイナリに埋め込まれた依存、jbom が使えない端末でのシェーディング jar。前者は `executables`（VersionInfo）と通達の製品名照合で補う。
+- 将来 AWS 側の手段（Inspector、スナップショット経由の syft）が使えるようになった場合、出力された CycloneDX を環境フォルダに置くだけで読める（ツール側の変更は不要）。
+
 **Linux（EC2 / EMR 各ノード）: `collect_linux.sh`**
 持ち込むもの: `collect_linux.sh` と `syft_<版>_linux_amd64.tar.gz`（arm64 の Graviton インスタンスがあれば arm64 版も）。スクリプトが同じフォルダの tar.gz を一時フォルダに展開して実行する（インストール不要、終了時に削除）。
 | ファイル | 取得方法 |
