@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vuln-triage"
+version = "0.1.0"
+description = "オフライン環境のインベントリと会社公表の脆弱性リストを突き合わせるトリアージ CLI"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6",
+    "packaging>=23",
+    "click>=8",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+vuln-triage = "vuln_triage.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

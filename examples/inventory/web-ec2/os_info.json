@@ -1,0 +1,49 @@
+{
+ "schema": "vuln-triage-osinfo/1",
+ "collector_version": "1",
+ "host": "web-ec2",
+ "collected_at": "2026-11-10T02:00:00Z",
+ "run_as_root": true,
+ "scan_root": "/",
+ "os": {
+  "family": "linux",
+  "id": "ubuntu",
+  "version_id": "22.04",
+  "pretty_name": "Ubuntu 22.04.3 LTS",
+  "kernel": "5.10.0",
+  "arch": "x86_64"
+ },
+ "emr_release": "",
+ "syft": {
+  "status": "ok",
+  "version": "1.18.1",
+  "exit_code": "0",
+  "reason": ""
+ },
+ "sections": {
+  "custom_products": {
+   "status": "ok",
+   "items": [
+    {
+     "name": "HULFT",
+     "status": "found",
+     "version": "8.4.0",
+     "source": "/opt/hulft/bin/(版を表示するコマンド)",
+     "reason": ""
+    },
+    {
+     "name": "DataMagic",
+     "status": "not_found",
+     "version": "",
+     "source": "名前検索: *datamagic*",
+     "reason": ""
+    }
+   ]
+  },
+  "unreadable": {
+   "status": "ok",
+   "items": []
+  }
+ },
+ "completed": true
+}

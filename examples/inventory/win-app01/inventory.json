@@ -1,0 +1,173 @@
+{
+ "schema": "vuln-triage-inventory/1",
+ "collector_version": "1",
+ "host": "WIN-APP01",
+ "collected_at": "2026-11-11T05:30:00Z",
+ "run_as_admin": true,
+ "os": {
+  "family": "windows",
+  "product_name": "Microsoft Windows Server 2019 Standard",
+  "display_version": "1809",
+  "build": "10.0.17763.5329",
+  "arch": "AMD64",
+  "system_root": "C:\\Windows"
+ },
+ "scan_roots": [
+  "C:\\Program Files",
+  "C:\\Program Files (x86)",
+  "C:\\ProgramData",
+  "D:\\apps"
+ ],
+ "sections": {
+  "hotfixes": {
+   "status": "ok",
+   "reason": "",
+   "items": [
+    {
+     "id": "KB5034127",
+     "installed_on": "01/12/2024 00:00:00",
+     "description": "Security Update"
+    },
+    {
+     "id": "KB5033371",
+     "installed_on": "12/15/2023 00:00:00",
+     "description": "Security Update"
+    }
+   ]
+  },
+  "installed_software": {
+   "status": "ok",
+   "reason": "",
+   "items": [
+    {
+     "name": "HULFT8 for Windows",
+     "version": "8.5.3",
+     "publisher": "",
+     "install_location": "D:\\apps\\HULFT8"
+    },
+    {
+     "name": "Apache Tomcat 9.0 Tomcat9",
+     "version": "9.0.83",
+     "publisher": "The Apache Software Foundation",
+     "install_location": "C:\\Program Files\\Apache Software Foundation\\Tomcat 9.0"
+    },
+    {
+     "name": "Python 3.9.13 (64-bit)",
+     "version": "3.9.13150.0",
+     "publisher": "Python Software Foundation",
+     "install_location": ""
+    }
+   ]
+  },
+  "running": {
+   "status": "ok",
+   "reason": "",
+   "items": [
+    {
+     "path": "C:\\Windows\\System32\\svchost.exe"
+    },
+    {
+     "path": "D:\\apps\\tomcat\\bin\\tomcat9.exe"
+    },
+    {
+     "path": "E:\\tools\\agent\\agent.exe"
+    }
+   ]
+  },
+  "executables": {
+   "status": "ok",
+   "reason": "",
+   "items": [
+    {
+     "product_name": "OpenJDK Platform 8",
+     "file_name": "java.exe",
+     "product_version": "8.0.3920.8",
+     "file_version": "8.0.3920.8",
+     "company": "Eclipse Adoptium",
+     "path": "D:\\apps\\jdk8u392\\bin\\java.exe"
+    },
+    {
+     "product_name": "The OpenSSL Toolkit",
+     "file_name": "libcrypto-3-x64.dll",
+     "product_version": "3.0.11",
+     "file_version": "3.0.11",
+     "company": "The OpenSSL Project",
+     "path": "D:\\apps\\tools\\libcrypto-3-x64.dll"
+    }
+   ]
+  },
+  "java_archives": {
+   "status": "ok",
+   "reason": "",
+   "items": [
+    {
+     "group": "org.apache.logging.log4j",
+     "artifact": "log4j-core",
+     "version": "2.14.1",
+     "path": "D:\\apps\\batch\\app.war!/WEB-INF/lib/log4j-core-2.14.1.jar",
+     "method": "pom.properties"
+    },
+    {
+     "group": "",
+     "artifact": "legacy-lib",
+     "version": "1.2.3",
+     "path": "D:\\apps\\batch\\lib\\legacy-lib-1.2.3.jar",
+     "method": "manifest",
+     "sha1": "cc03655fdfc7aafd5e51fd94c0feeb80998b8d9b"
+    }
+   ]
+  },
+  "python_packages": {
+   "status": "ok",
+   "reason": "",
+   "items": [
+    {
+     "name": "requests",
+     "version": "2.25.0",
+     "path": "D:\\apps\\py\\Lib\\site-packages\\requests-2.25.0.dist-info\\METADATA"
+    }
+   ]
+  },
+  "node_packages": {
+   "status": "ok",
+   "reason": "",
+   "items": []
+  },
+  "dotnet_packages": {
+   "status": "ok",
+   "reason": "",
+   "items": []
+  },
+  "custom_products": {
+   "status": "ok",
+   "reason": "",
+   "items": [
+    {
+     "name": "HULFT",
+     "status": "found",
+     "version": "",
+     "source": "D:\\apps\\HULFT8",
+     "reason": ""
+    },
+    {
+     "name": "DataMagic",
+     "status": "not_found",
+     "version": "",
+     "source": "名前検索: *datamagic*",
+     "reason": ""
+    }
+   ]
+  },
+  "unreadable": {
+   "status": "ok",
+   "reason": "",
+   "items": [
+    {
+     "path": "C:\\ProgramData\\Microsoft\\Crypto\\SystemKeys",
+     "reason": "Access to the path is denied."
+    }
+   ]
+  }
+ },
+ "completed": true
+}

@@ -1,0 +1,16 @@
+{
+ "Sources": [
+  {
+   "Packages": [
+    {
+     "PackageIdentifier": "Apache.Tomcat.9",
+     "Version": "9.0.98"
+    },
+    {
+     "PackageIdentifier": "Python.Python.3.11",
+     "Version": "3.11.9"
+    }
+   ]
+  }
+ ]
+}

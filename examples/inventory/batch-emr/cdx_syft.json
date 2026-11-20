@@ -1,0 +1,57 @@
+{
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.6",
+ "version": 1,
+ "metadata": {
+  "tools": {
+   "components": [
+    {
+     "type": "application",
+     "name": "syft",
+     "version": "1.18.1"
+    }
+   ]
+  },
+  "component": {
+   "type": "file",
+   "name": "/",
+   "bom-ref": "root"
+  }
+ },
+ "components": [
+  {
+   "type": "operating-system",
+   "name": "amzn",
+   "version": "2",
+   "bom-ref": "os:amzn@2"
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1#0",
+   "name": "log4j-core",
+   "version": "2.17.1",
+   "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1",
+   "group": "org.apache.logging.log4j",
+   "properties": [
+    {
+     "name": "syft:location:0:path",
+     "value": "/usr/lib/spark/jars/log4j-core-2.17.1.jar"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:maven/org.apache.spark/spark-core_2.12@3.4.1-amzn-2#1",
+   "name": "spark-core_2.12",
+   "version": "3.4.1-amzn-2",
+   "purl": "pkg:maven/org.apache.spark/spark-core_2.12@3.4.1-amzn-2",
+   "group": "org.apache.spark",
+   "properties": [
+    {
+     "name": "syft:location:0:path",
+     "value": "/usr/lib/spark/jars/spark-core_2.12-3.4.1-amzn-2.jar"
+    }
+   ]
+  }
+ ]
+}

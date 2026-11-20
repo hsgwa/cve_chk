@@ -1,0 +1,438 @@
+{
+ "SchemaVersion": 2,
+ "Trivy": {
+  "Version": "0.69.3"
+ },
+ "ReportID": "01a1f7da-735a-7b0d-a1df-619868a78277",
+ "CreatedAt": "2026-11-20T07:27:31.162726303Z",
+ "ArtifactName": "examples/inventory/batch-emr/cdx_syft.json",
+ "ArtifactType": "cyclonedx",
+ "Metadata": {
+  "OS": {
+   "Family": "amzn",
+   "Name": "2"
+  }
+ },
+ "Results": [
+  {
+   "Target": "Java",
+   "Class": "lang-pkgs",
+   "Type": "jar",
+   "Packages": [
+    {
+     "ID": "org.apache.logging.log4j:log4j-core:2.17.1",
+     "Name": "org.apache.logging.log4j:log4j-core",
+     "Identifier": {
+      "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1",
+      "UID": "ec8850b5b71ceec8",
+      "BOMRef": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1#0"
+     },
+     "Version": "2.17.1"
+    },
+    {
+     "ID": "org.apache.spark:spark-core_2.12:3.4.1-amzn-2",
+     "Name": "org.apache.spark:spark-core_2.12",
+     "Identifier": {
+      "PURL": "pkg:maven/org.apache.spark/spark-core_2.12@3.4.1-amzn-2",
+      "UID": "4f35374b037f1e4c",
+      "BOMRef": "pkg:maven/org.apache.spark/spark-core_2.12@3.4.1-amzn-2#1"
+     },
+     "Version": "3.4.1-amzn-2"
+    }
+   ],
+   "Vulnerabilities": [
+    {
+     "VulnerabilityID": "CVE-2025-68161",
+     "VendorIDs": [
+      "GHSA-vc5p-v9hr-52mj"
+     ],
+     "PkgID": "org.apache.logging.log4j:log4j-core:2.17.1",
+     "PkgName": "org.apache.logging.log4j:log4j-core",
+     "PkgIdentifier": {
+      "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1",
+      "UID": "ec8850b5b71ceec8",
+      "BOMRef": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1#0"
+     },
+     "InstalledVersion": "2.17.1",
+     "FixedVersion": "2.25.3",
+     "Status": "fixed",
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-68161",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory Maven",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+     },
+     "Fingerprint": "sha256:f671c7361b7904cc711389904234a069541931febe1aa6be96d31590d6809a57",
+     "Title": "Apache Log4j: Apache Log4j Core: Information disclosure via missing TLS hostname verification",
+     "Description": "The Socket Appender in Apache Log4j Core versions 2.0-beta9 through 2.25.2 does not perform TLS hostname verification of the peer certificate, even when the  verifyHostName https://logging.apache.org/log4j/2.x/manual/appenders/network.html#SslConfiguration-attr-verifyHostName  configuration attribute or the  log4j2.sslVerifyHostName https://logging.apache.org/log4j/2.x/manual/systemproperties.html#log4j2.sslVerifyHostName  system property is set to true.\n\nThis issue may allow a man-in-the-middle attacker to intercept or redirect log traffic under the following conditions:\n\n  *  The attacker is able to intercept or redirect network traffic between the client and the log receiver.\n  *  The attacker can present a server certificate issued by a certification authority trusted by the Socket Appender’s configured trust store (or by the default Java trust store if no custom trust store is configured).\n\n\nUsers are advised to upgrade to Apache Log4j Core version 2.25.3, which addresses this issue.\n\nAs an alternative mitigation, the Socket Appender may be configured to use a private or restricted trust root to limit the set of trusted certificates.",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-297",
+      "CWE-295"
+     ],
+     "VendorSeverity": {
+      "amazon": 2,
+      "ghsa": 2,
+      "nvd": 2,
+      "redhat": 2
+     },
+     "CVSS": {
+      "ghsa": {
+       "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:L/SA:N",
+       "V40Score": 6.3
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N",
+       "V3Score": 4.8
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+       "V3Score": 5.9
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2025/12/18/1",
+      "https://access.redhat.com/security/cve/CVE-2025-68161",
+      "https://advisory.echohq.com/cve/CVE-2025-68161",
+      "https://github.com/apache/logging-log4j2",
+      "https://github.com/apache/logging-log4j2/commit/3b93748497e1adbbd027fda8a5e7268ec5d0d578",
+      "https://github.com/apache/logging-log4j2/pull/4002",
+      "https://lists.apache.org/thread/xr33kyxq3sl67lwb61ggvm1fzc8k7dvx",
+      "https://lists.debian.org/debian-lts-announce/2026/01/msg00015.html",
+      "https://logging.apache.org/cyclonedx/vdr.xml",
+      "https://logging.apache.org/log4j/2.x/manual/appenders/network.html#SslConfiguration-attr-verifyHostName",
+      "https://logging.apache.org/log4j/2.x/manual/systemproperties.html#log4j2.sslVerifyHostName",
+      "https://logging.apache.org/security.html#CVE-2025-68161",
+      "https://nvd.nist.gov/vuln/detail/CVE-2025-68161",
+      "https://www.cve.org/CVERecord?id=CVE-2025-68161"
+     ],
+     "PublishedDate": "2025-12-18T21:15:57.96Z",
+     "LastModifiedDate": "2026-06-17T09:58:39.58Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-34477",
+     "VendorIDs": [
+      "GHSA-6hg6-v5c8-fphq"
+     ],
+     "PkgID": "org.apache.logging.log4j:log4j-core:2.17.1",
+     "PkgName": "org.apache.logging.log4j:log4j-core",
+     "PkgIdentifier": {
+      "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1",
+      "UID": "ec8850b5b71ceec8",
+      "BOMRef": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1#0"
+     },
+     "InstalledVersion": "2.17.1",
+     "FixedVersion": "2.25.4",
+     "Status": "fixed",
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-34477",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory Maven",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+     },
+     "Fingerprint": "sha256:876dbe1afc57c14a867359517bfd2d43db73cc9808dedfd88cca88ab88ae64ab",
+     "Title": "org.apache.logging.log4j/log4j-core: Apache Log4j Core: Man-in-the-middle attack due to incomplete hostname verification",
+     "Description": "The fix for  CVE-2025-68161 https://logging.apache.org/security.html#CVE-2025-68161  was incomplete: it addressed hostname verification only when enabled via the  log4j2.sslVerifyHostName https://logging.apache.org/log4j/2.x/manual/systemproperties.html#log4j2.sslVerifyHostName  system property, but not when configured through the  verifyHostName https://logging.apache.org/log4j/2.x/manual/appenders/network.html#SslConfiguration-attr-verifyHostName  attribute of the <Ssl> element.\n\nAlthough the verifyHostName configuration attribute was introduced in Log4j Core 2.12.0, it was silently ignored in all versions through 2.25.3, leaving TLS connections vulnerable to interception regardless of the configured value.\n\nA network-based attacker may be able to perform a man-in-the-middle attack when all of the following conditions are met:\n\n  *  An SMTP, Socket, or Syslog appender is in use.\n  *  TLS is configured via a nested <Ssl> element.\n  *  The attacker can present a certificate issued by a CA trusted by the appender's configured trust store, or by the default Java trust store if none is configured.\nThis issue does not affect users of the HTTP appender, which uses a separate  verifyHostname https://logging.apache.org/log4j/2.x/manual/appenders/network.html#HttpAppender-attr-verifyHostName  attribute that was not subject to this bug and verifies host names by default.\n\nUsers are advised to upgrade to Apache Log4j Core 2.25.4, which corrects this issue.",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-297",
+      "CWE-295"
+     ],
+     "VendorSeverity": {
+      "ghsa": 2,
+      "nvd": 2,
+      "redhat": 2
+     },
+     "CVSS": {
+      "ghsa": {
+       "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:L/SA:N",
+       "V40Score": 6.3
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:N",
+       "V3Score": 5.9
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N",
+       "V3Score": 6.8
+      }
+     },
+     "References": [
+      "https://access.redhat.com/security/cve/CVE-2026-34477",
+      "https://advisory.echohq.com/cve/CVE-2026-34477",
+      "https://github.com/apache/logging-log4j2",
+      "https://github.com/apache/logging-log4j2/pull/4075",
+      "https://lists.apache.org/thread/lkx8cl46t2bvkcwfcb2pd43ygc097lq4",
+      "https://logging.apache.org/cyclonedx/vdr.xml",
+      "https://logging.apache.org/log4j/2.x/manual/appenders/network.html#SslConfiguration-attr-verifyHostName",
+      "https://logging.apache.org/security.html#CVE-2026-34477",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-34477",
+      "https://www.cve.org/CVERecord?id=CVE-2026-34477"
+     ],
+     "PublishedDate": "2026-04-10T16:16:30.843Z",
+     "LastModifiedDate": "2026-10-26T22:10:00.163Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-34479",
+     "VendorIDs": [
+      "GHSA-h383-gmxw-35v2"
+     ],
+     "PkgID": "org.apache.logging.log4j:log4j-core:2.17.1",
+     "PkgName": "org.apache.logging.log4j:log4j-core",
+     "PkgIdentifier": {
+      "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1",
+      "UID": "ec8850b5b71ceec8",
+      "BOMRef": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1#0"
+     },
+     "InstalledVersion": "2.17.1",
+     "FixedVersion": "2.25.4",
+     "Status": "fixed",
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-34479",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory Maven",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+     },
+     "Fingerprint": "sha256:62d54ef71bf8cc595f115b50250727006fe9443c6ca0c85322119489a70b0273",
+     "Title": "org.apache.logging.log4j/log4j-1.2-api: Apache Log4j 1-to-Log4j 2 bridge: Log processing denial of service due to improper XML escaping",
+     "Description": "The Log4j1XmlLayout from the Apache Log4j 1-to-Log4j 2 bridge fails to escape characters forbidden by the XML 1.0 standard, producing malformed XML output. Conforming XML parsers are required to reject documents containing such characters with a fatal error, which may cause downstream log processing systems to drop or fail to index affected records.\n\nTwo groups of users are affected:\n\n  *  Those using Log4j1XmlLayout directly in a Log4j Core 2 configuration file.\n  *  Those using the Log4j 1 configuration compatibility layer with org.apache.log4j.xml.XMLLayout specified as the layout class.\n\n\nUsers are advised to upgrade to Apache Log4j 1-to-Log4j 2 bridge version 2.25.4, which corrects this issue.\n\nNote: The Apache Log4j 1-to-Log4j 2 bridge is deprecated and will not be present in Log4j 3. Users are encouraged to consult the  Log4j 1 to Log4j 2 migration guide https://logging.apache.org/log4j/2.x/migrate-from-log4j1.html , and specifically the section on eliminating reliance on the bridge.",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-116"
+     ],
+     "VendorSeverity": {
+      "ghsa": 2,
+      "nvd": 3,
+      "redhat": 2,
+      "ubuntu": 2
+     },
+     "CVSS": {
+      "ghsa": {
+       "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:L/SA:N",
+       "V40Score": 6.9
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+       "V3Score": 7.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+       "V3Score": 5.3
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2026/04/10/8",
+      "https://access.redhat.com/security/cve/CVE-2026-34479",
+      "https://advisory.echohq.com/cve/CVE-2026-34479",
+      "https://github.com/apache/logging-log4j2",
+      "https://github.com/apache/logging-log4j2/pull/4078",
+      "https://lists.apache.org/thread/gd0hp6mj17rn3kj279vgy4p7kd4zz5on",
+      "https://logging.apache.org/cyclonedx/vdr.xml",
+      "https://logging.apache.org/log4j/2.x/migrate-from-log4j1.html",
+      "https://logging.apache.org/security.html#CVE-2026-34479",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-34479",
+      "https://www.cve.org/CVERecord?id=CVE-2026-34479"
+     ],
+     "PublishedDate": "2026-04-10T16:16:31.27Z",
+     "LastModifiedDate": "2026-10-26T21:10:00.17Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-34480",
+     "VendorIDs": [
+      "GHSA-3pxv-7cmr-fjr4"
+     ],
+     "PkgID": "org.apache.logging.log4j:log4j-core:2.17.1",
+     "PkgName": "org.apache.logging.log4j:log4j-core",
+     "PkgIdentifier": {
+      "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1",
+      "UID": "ec8850b5b71ceec8",
+      "BOMRef": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1#0"
+     },
+     "InstalledVersion": "2.17.1",
+     "FixedVersion": "2.25.4",
+     "Status": "fixed",
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-34480",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory Maven",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+     },
+     "Fingerprint": "sha256:960edd5dea3b38e82b37836d3fc40488b1d383f028a3c9fddd4986b3cc663fb9",
+     "Title": "org.apache.logging.log4j/log4j-core: Apache Log4j Core: Invalid XML output causes denial of service in logging",
+     "Description": "Apache Log4j Core's  XmlLayout https://logging.apache.org/log4j/2.x/manual/layouts.html#XmlLayout , in versions up to and including 2.25.3, fails to sanitize characters forbidden by the  XML 1.0 specification https://www.w3.org/TR/xml/#charsets  producing invalid XML output whenever a log message or MDC value contains such characters.\n\nThe impact depends on the StAX implementation in use:\n\n  *  JRE built-in StAX: Forbidden characters are silently written to the output, producing malformed XML. Conforming parsers must reject such documents with a fatal error, which may cause downstream log-processing systems to drop the affected records.\n  *  Alternative StAX implementations (e.g.,  Woodstox https://github.com/FasterXML/woodstox , a transitive dependency of the Jackson XML Dataformat module): An exception is thrown during the logging call, and the log event is never delivered to its intended appender, only to Log4j's internal status logger.\n\n\nUsers are advised to upgrade to Apache Log4j Core 2.25.4, which corrects this issue by sanitizing forbidden characters before XML output.",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-116"
+     ],
+     "VendorSeverity": {
+      "ghsa": 2,
+      "nvd": 3,
+      "redhat": 2,
+      "ubuntu": 2
+     },
+     "CVSS": {
+      "ghsa": {
+       "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:L/SA:N",
+       "V40Score": 6.9
+      },
+      "nvd": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+       "V3Score": 7.5
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+       "V3Score": 5.3
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2026/04/10/9",
+      "https://access.redhat.com/security/cve/CVE-2026-34480",
+      "https://advisory.echohq.com/cve/CVE-2026-34480",
+      "https://github.com/apache/logging-log4j2",
+      "https://github.com/apache/logging-log4j2/pull/4077",
+      "https://lists.apache.org/thread/5x0hcnng0chhghp6jgjdp3qmbbhfjzhb",
+      "https://logging.apache.org/cyclonedx/vdr.xml",
+      "https://logging.apache.org/log4j/2.x/manual/layouts.html#XmlLayout",
+      "https://logging.apache.org/security.html#CVE-2026-34480",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-34480",
+      "https://www.cve.org/CVERecord?id=CVE-2026-34480"
+     ],
+     "PublishedDate": "2026-04-10T16:16:31.463Z",
+     "LastModifiedDate": "2026-10-26T22:10:00.163Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2025-54920",
+     "VendorIDs": [
+      "GHSA-jwp6-cvj8-fw65"
+     ],
+     "PkgID": "org.apache.spark:spark-core_2.12:3.4.1-amzn-2",
+     "PkgName": "org.apache.spark:spark-core_2.12",
+     "PkgIdentifier": {
+      "PURL": "pkg:maven/org.apache.spark/spark-core_2.12@3.4.1-amzn-2",
+      "UID": "4f35374b037f1e4c",
+      "BOMRef": "pkg:maven/org.apache.spark/spark-core_2.12@3.4.1-amzn-2#1"
+     },
+     "InstalledVersion": "3.4.1-amzn-2",
+     "FixedVersion": "3.5.7",
+     "Status": "fixed",
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-54920",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory Maven",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+     },
+     "Fingerprint": "sha256:51cc613208f55388800169c655c8e693397ff2e734b73b2c35718809cb63992a",
+     "Title": "org.apache.spark/spark-core: Apache Spark: Spark History Server Code Execution Vulnerability",
+     "Description": "This issue affects Apache Spark: before 3.5.7 and 4.0.1. Users are recommended to upgrade to version 3.5.7 or 4.0.1 and above, which fixes the issue.\n\n\n\n\n\nSummary\n\nApache Spark 3.5.4 and earlier versions contain a code execution vulnerability in the Spark History Web UI due to overly permissive Jackson deserialization of event log data. This allows an attacker with access to the Spark event logs directory to inject malicious JSON payloads that trigger deserialization of arbitrary classes, enabling command execution on the host running the Spark History Server.\n\n\n\n\n\nDetails\n\nThe vulnerability arises because the Spark History Server uses Jackson polymorphic deserialization with @JsonTypeInfo.Id.CLASS on SparkListenerEvent objects, allowing an attacker to specify arbitrary class names in the event JSON. This behavior permits instantiating unintended classes, such as org.apache.hive.jdbc.HiveConnection, which can perform network calls or other malicious actions during deserialization.\n\n\nThe attacker can exploit this by injecting crafted JSON content into the Spark event log files, which the History Server then deserializes on startup or when loading event logs. For example, the attacker can force the History Server to open a JDBC connection to a remote attacker-controlled server, demonstrating remote command injection capability.\n\n\n\n\n\n\nProof of Concept:\n\n1. Run Spark with event logging enabled, writing to a writable directory (spark-logs).\n\n2. Inject the following JSON at the beginning of an event log file:\n\n\n{\n\n  \"Event\": \"org.apache.hive.jdbc.HiveConnection\",\n  \"uri\": \"jdbc:hive2://<IP>:<PORT>/\",\n  \"info\": {\n    \"hive.metastore.uris\": \"thrift://<IP>:<PORT>\"\n  }\n}\n\n\n\n\n\n\n\n3. Start the Spark History Server with logs pointing to the modified directory.\n\n4. The Spark History Server initiates a JDBC connection to the attacker’s server, confirming the injection.\n\n\n\n\n\n\n\n\n\n\nImpact\n\nAn attacker with write access to Spark event logs can execute arbitrary code on the server running the History Server, potentially compromising the entire system.",
+     "Severity": "HIGH",
+     "CweIDs": [
+      "CWE-502"
+     ],
+     "VendorSeverity": {
+      "bitnami": 3,
+      "ghsa": 3,
+      "redhat": 2
+     },
+     "CVSS": {
+      "bitnami": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+       "V3Score": 8.8
+      },
+      "ghsa": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+       "V3Score": 8.8
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:L",
+       "V3Score": 6.7
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2026/03/13/4",
+      "https://access.redhat.com/security/cve/CVE-2025-54920",
+      "https://github.com/apache/spark",
+      "https://github.com/apache/spark/pull/51312",
+      "https://github.com/apache/spark/pull/51323",
+      "https://issues.apache.org/jira/browse/SPARK-52381",
+      "https://lists.apache.org/thread/4y9n0nfj7m68o2hpmoxgc0y7dm1lo02s",
+      "https://nvd.nist.gov/vuln/detail/CVE-2025-54920",
+      "https://www.cve.org/CVERecord?id=CVE-2025-54920"
+     ],
+     "PublishedDate": "2026-03-16T14:17:59.877Z",
+     "LastModifiedDate": "2026-06-17T09:40:56.73Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-32773",
+     "VendorIDs": [
+      "GHSA-9437-39hj-3c93"
+     ],
+     "PkgID": "org.apache.spark:spark-core_2.12:3.4.1-amzn-2",
+     "PkgName": "org.apache.spark:spark-core_2.12",
+     "PkgIdentifier": {
+      "PURL": "pkg:maven/org.apache.spark/spark-core_2.12@3.4.1-amzn-2",
+      "UID": "4f35374b037f1e4c",
+      "BOMRef": "pkg:maven/org.apache.spark/spark-core_2.12@3.4.1-amzn-2#1"
+     },
+     "InstalledVersion": "3.4.1-amzn-2",
+     "FixedVersion": "3.5.8",
+     "Status": "fixed",
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-32773",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory Maven",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+     },
+     "Fingerprint": "sha256:a165f8a3b82224fa761dc06705481bf6f286a18c5a9fa7eeb25fbe9f6c6320b4",
+     "Title": "Apache Spark: Apache Spark: Cross-Site Scripting (XSS) leading to privilege escalation",
+     "Description": "There is a lack of XSS escaping in the Spark History Server prior to 3.5.8 which allows a malicious Spark job to generate arbitrary unescaped frontend code which could lead to a minimal privilege escalation in browser. Users are encouraged to upgrade to Spark 3.5.8 or later.\n\nThis CVE is marked as \"low\" since the path to exploit requires both relatively high permissions (ability to launch a Spark job) and requires tricking a user with higher permissions to log in and visit the Spark history web page.\n\nUsers are encouraged to upgrade their Spark history servers to Spark 3.5.8 or later.",
+     "Severity": "MEDIUM",
+     "CweIDs": [
+      "CWE-80"
+     ],
+     "VendorSeverity": {
+      "bitnami": 2,
+      "ghsa": 2,
+      "redhat": 1
+     },
+     "CVSS": {
+      "bitnami": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+       "V3Score": 6.1
+      },
+      "ghsa": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+       "V3Score": 6.1
+      },
+      "redhat": {
+       "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:R/S:U/C:L/I:L/A:N",
+       "V3Score": 3.5
+      }
+     },
+     "References": [
+      "http://www.openwall.com/lists/oss-security/2026/09/01/4",
+      "https://access.redhat.com/security/cve/CVE-2026-32773",
+      "https://advisory.echohq.com/cve/CVE-2026-32773",
+      "https://github.com/advisories/GHSA-9437-39hj-3c93",
+      "https://github.com/apache/spark",
+      "https://github.com/apache/spark/commit/3c83c2c6a22fe384280b99bb753b14800b7e27e1",
+      "https://github.com/apache/spark/commit/e739b7d349dbd41b78d49bc8086cab63db057e14",
+      "https://github.com/apache/spark/pull/52851",
+      "https://github.com/pypa/advisory-database/tree/main/vulns/pyspark/PYSEC-2026-3966.yaml",
+      "https://issues.apache.org/jira/browse/SPARK-53747",
+      "https://lists.apache.org/thread/k36prh3oxl1z6ov7w8rpmfnt07hmzw3v",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-32773",
+      "https://www.cve.org/CVERecord?id=CVE-2026-32773"
+     ],
+     "PublishedDate": "2026-09-02T11:17:20.173Z",
+     "LastModifiedDate": "2026-09-08T13:04:14.69Z"
+    }
+   ]
+  }
+ ]
+}

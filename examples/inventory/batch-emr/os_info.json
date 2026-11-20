@@ -1,0 +1,49 @@
+{
+ "schema": "vuln-triage-osinfo/1",
+ "collector_version": "1",
+ "host": "batch-emr",
+ "collected_at": "2026-11-10T02:00:00Z",
+ "run_as_root": true,
+ "scan_root": "/",
+ "os": {
+  "family": "linux",
+  "id": "amzn",
+  "version_id": "2",
+  "pretty_name": "Amazon Linux 2",
+  "kernel": "5.10.0",
+  "arch": "x86_64"
+ },
+ "emr_release": "emr-6.15.0",
+ "syft": {
+  "status": "ok",
+  "version": "1.18.1",
+  "exit_code": "0",
+  "reason": ""
+ },
+ "sections": {
+  "custom_products": {
+   "status": "ok",
+   "items": [
+    {
+     "name": "HULFT",
+     "status": "not_found",
+     "version": "",
+     "source": "名前検索: *hulft*",
+     "reason": ""
+    },
+    {
+     "name": "DataMagic",
+     "status": "found",
+     "version": "",
+     "source": "/opt/datamagic",
+     "reason": ""
+    }
+   ]
+  },
+  "unreadable": {
+   "status": "ok",
+   "items": []
+  }
+ },
+ "completed": true
+}

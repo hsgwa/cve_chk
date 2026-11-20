@@ -1,0 +1,64 @@
+{
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.6",
+ "version": 1,
+ "metadata": {
+  "tools": {
+   "components": [
+    {
+     "type": "application",
+     "name": "syft",
+     "version": "1.18.1"
+    }
+   ]
+  },
+  "component": {
+   "type": "file",
+   "name": "/",
+   "bom-ref": "root"
+  }
+ },
+ "components": [
+  {
+   "type": "operating-system",
+   "name": "ubuntu",
+   "version": "22.04",
+   "bom-ref": "os:ubuntu@22.04"
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:deb/ubuntu/openssl@3.0.2-0ubuntu1.10?arch=amd64&distro=ubuntu-22.04#0",
+   "name": "openssl",
+   "version": "3.0.2-0ubuntu1.10",
+   "purl": "pkg:deb/ubuntu/openssl@3.0.2-0ubuntu1.10?arch=amd64&distro=ubuntu-22.04"
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1#1",
+   "name": "log4j-core",
+   "version": "2.14.1",
+   "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+   "group": "org.apache.logging.log4j",
+   "properties": [
+    {
+     "name": "syft:location:0:path",
+     "value": "/opt/app/lib/log4j-core-2.14.1.jar"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:maven/org.apache.commons/commons-text@1.9#2",
+   "name": "commons-text",
+   "version": "1.9",
+   "purl": "pkg:maven/org.apache.commons/commons-text@1.9",
+   "group": "org.apache.commons",
+   "properties": [
+    {
+     "name": "syft:location:0:path",
+     "value": "/opt/app/lib/commons-text-1.9.jar"
+    }
+   ]
+  }
+ ]
+}
