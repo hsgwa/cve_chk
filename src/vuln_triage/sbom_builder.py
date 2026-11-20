@@ -72,6 +72,18 @@ def build_sbom(env: EnvInventory) -> dict | None:
     }
 
 
+def assign_purls(envs: list[EnvInventory]) -> None:
+    """inventory.json 由来のコンポーネントに PURL を付ける（OSV で照合できるようにする）。"""
+    for env in envs:
+        for component in env.components:
+            if component.purl:
+                continue
+            purl = make_purl(component)
+            if purl:
+                component.purl = purl
+                component.scannable = True
+
+
 def write_sboms(envs: list[EnvInventory], out_dir: str | Path) -> list[Path]:
     """各環境の SBOM を書き出し、env.sbom_files に追加する。"""
     out = Path(out_dir)
@@ -83,6 +95,9 @@ def write_sboms(envs: list[EnvInventory], out_dir: str | Path) -> list[Path]:
         out.mkdir(parents=True, exist_ok=True)
         path = out / f"{GENERATED_PREFIX}{env.name}.cdx.json"
         path.write_text(json.dumps(sbom, ensure_ascii=False, indent=1), encoding="utf-8")
+        for component in env.components:
+            if component.scannable and not component.sbom_file:
+                component.sbom_file = path.name
         env.sbom_files.append(path)
         written.append(path)
     return written

@@ -28,7 +28,7 @@ SUMMARY_HEADER = [
 ]
 COVERAGE_HEADER = [
     "環境", "公開区分", "システム名", "env_master登録", "OS", "OSビルド", "回収日時", "回収ファイル",
-    "コンポーネント数", "CVE判定(Trivy)", "適用済みKB", "注意事項", "読めなかったフォルダ", "スキャン範囲外で動作中",
+    "コンポーネント数", "CVE判定", "適用済みKB", "注意事項", "読めなかったフォルダ", "スキャン範囲外で動作中",
 ]
 
 # 総合判定の優先順（左ほど優先）
@@ -38,7 +38,9 @@ LIMITATION_NOTES = [
     "「未使用」「影響なし」は回収できた範囲での結果です。「収集状況」シートで回収漏れが無いか確認してください。",
     "コンテナの中身、Lambda の実行環境、AWS マネージドサービス側、Windows の Go/Rust 製 exe の内部依存は対象外です。",
     "「影響あり」はバージョンの一致を意味し、実際に攻撃可能かどうかは判定していません。",
-    "Trivy の脆弱性 DB に載っていない脆弱性（商用ソフト等）は、通達に製品名とバージョン条件が無いと検出できません。",
+    "脆弱性データベース（OSV.dev、Amazon Linux の公式情報）に載っていない脆弱性（商用ソフト等）は、通達に製品名とバージョン条件が無いと検出できません。",
+    "Ubuntu / Debian の OS パッケージは、データ源の違いから Trivy の結果と大きく異なることを確認しています。参考として扱ってください。",
+    "Amazon Linux の公式情報には CVSS が無いため、他のデータ（Debian 等）の同じ CVE から点数を引いています。見つからない場合は CVSS 不明（Rank-C）です。",
     "製品名の表記が回収データと異なると「未使用」になります。config.yaml の aliases で対応付けてください。",
 ]
 
@@ -156,6 +158,12 @@ def coverage_table(envs: list[EnvInventory], today: date, config: dict[str, Any]
         notes.extend(f"製品の版取得に失敗: {p.name}（{p.reason}）" for p in env.failed_probes)
         notes.extend(f"{name}: {s.status}（{s.reason}）" for name, s in env.sections.items()
                      if s.status in ("failed", "skipped") and name != "syft")
+        if not env.cve_coverage:
+            coverage = "不可"
+        elif env.missing_db:
+            coverage = "一部のみ"
+        else:
+            coverage = "可"
         if env.hotfixes is not None:
             hotfix = f"{len(env.hotfixes)} 件"
         else:
@@ -163,14 +171,14 @@ def coverage_table(envs: list[EnvInventory], today: date, config: dict[str, Any]
         table.append([
             env.name, env.exposure, env.system_name, "登録済み" if env.registered else "未登録",
             env.os_name or env.os_family, env.os_build, env.collected_at, "\n".join(env.files),
-            str(len(env.components)), "可" if env.cve_coverage else "不可", hotfix,
+            str(len(env.components)), coverage, hotfix,
             "\n".join(notes), "\n".join(env.unreadable[:50]), "\n".join(sorted(set(env.out_of_scope_running))[:50]),
         ])
     return table
 
 
 def overview(advisories: list[Advisory], rows: list[Verdict], new_findings: list[Verdict],
-             envs: list[EnvInventory], config: dict[str, Any]) -> dict[str, Any]:
+             envs: list[EnvInventory], config: dict[str, Any], db_info: dict[str, dict] | None = None) -> dict[str, Any]:
     """標準出力とサマリシートに出す集計。"""
     summary = summary_table(advisories, rows, config)
     overall = Counter(line[4] for line in summary)
@@ -184,4 +192,5 @@ def overview(advisories: list[Advisory], rows: list[Verdict], new_findings: list
         "overdue": sum(1 for r in affected if "期限超過" in r.note),
         "new_findings": len(new_findings),
         "unregistered": [e.name for e in envs if not e.registered],
+        "db": {name: str(info.get("updated_at", ""))[:10] for name, info in sorted((db_info or {}).items())},
     }

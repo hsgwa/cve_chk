@@ -53,7 +53,7 @@ def test_trivy_not_found(monkeypatch, config):
     monkeypatch.setattr(trivy_runner.shutil, "which", lambda name: None)
     with pytest.raises(TrivyNotFoundError) as error:
         find_trivy(config)
-    assert "--skip-trivy" in str(error.value) and "trivy.exe" in str(error.value)
+    assert "--scanner osv" in str(error.value) and "trivy.exe" in str(error.value)
     config["trivy"]["path"] = "C:/nowhere/trivy.exe"
     with pytest.raises(TrivyNotFoundError):
         find_trivy(config)
@@ -90,6 +90,7 @@ def test_scan_with_saved_results(examples, config, tmp_path):
     findings = scan_environments([env, other], config, results_dir=examples / "trivy_fixtures")
     assert any(f.cve_id == "CVE-2021-44228" and f.path == "/opt/app/lib/log4j-core-2.14.1.jar" for f in findings)
     assert env.cve_coverage and not other.cve_coverage
+    assert all(c.checked for c in env.components if c.sbom_file == "cdx_syft.json")
     assert any("保存済みの Trivy 結果" in w for w in other.warnings)
 
 

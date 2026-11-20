@@ -18,6 +18,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "cvss_source_priority": ["nvd"],
     "aliases": {},
     "stale_days": 90,
+    "scanner": "osv",
+    "vulndb": {
+        "dir": "vulndb",
+        "osv_url": "https://osv-vulnerabilities.storage.googleapis.com",
+        "max_age_days": 7,
+        "ubuntu_pro": False,
+        "score_sources": ["Debian"],
+        "amazon_mirrors": {},
+    },
     "trivy": {"path": "", "timeout_sec": 600, "extra_args": []},
     "msrc": {"enabled": True, "timeout_sec": 60, "eol_builds": []},
     "advisory_input": {
@@ -40,7 +49,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 def _merge(base: dict, override: dict) -> dict:
     for key, value in override.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict) and key not in ("aliases",):
+        if isinstance(value, dict) and isinstance(base.get(key), dict) and key not in ("aliases", "amazon_mirrors"):
             _merge(base[key], value)
         elif value is not None:
             base[key] = value

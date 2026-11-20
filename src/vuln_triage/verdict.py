@@ -14,7 +14,7 @@ from typing import Any
 from .inventory import normalize_kb
 from .matching.names import build_matcher
 from .matching.rank import decide_rank
-from .matching.versions import version_matches
+from .matching.versions import version_matches_in
 from .models import (
     AFFECTED,
     AFFECTED_UNCOMPARABLE,
@@ -28,13 +28,13 @@ from .models import (
     Advisory,
     Component,
     EnvInventory,
-    TrivyFinding,
+    Finding,
     Verdict,
 )
 from .msrc import MsrcClient, evaluate_build
 
-CAT_TRIVY = "CVE（Trivy）"
-CAT_TRIVY_RULE = "CVE（Trivy＋ルール）"
+CAT_TRIVY = "CVE（脆弱性DB）"
+CAT_TRIVY_RULE = "CVE（脆弱性DB＋ルール）"
 CAT_RULE = "ルール（製品・版）"
 CAT_KB = "KB"
 CAT_MSRC = "Windows OS（ビルド番号）"
@@ -48,22 +48,34 @@ _PRIORITY = [UNKNOWN, NOT_AFFECTED, NOT_DETECTED, NOT_APPLICABLE, UNUSED]
 @dataclass
 class JudgeResult:
     rows: list[Verdict] = field(default_factory=list)            # 通達 × 環境 × パッケージ
-    new_findings: list[Verdict] = field(default_factory=list)    # 通達に無い Trivy 検出
+    new_findings: list[Verdict] = field(default_factory=list)    # 通達に無い脆弱性データベースの検出
     messages: list[str] = field(default_factory=list)
 
 
-def _finding_component(finding: TrivyFinding) -> Component:
+def _finding_component(finding: Finding) -> Component:
     group, _, artifact = finding.pkg_name.rpartition(":")
     if group:
         return Component(name=artifact, version=finding.installed_version, kind=KIND_MAVEN, group=group)
     return Component(name=finding.pkg_name, version=finding.installed_version)
 
 
+def _ecosystem_of(component: Component, env: EnvInventory) -> str | None:
+    """コンポーネントの版の比較規則（Maven、Amazon Linux など）。分からなければ None。"""
+    if not component.purl:
+        return None
+    from .vulndb.ecosystems import build_query
+
+    query = build_query(component, env)
+    if query is None:
+        return None
+    return query.ecosystems[0] if query.ecosystems else None
+
+
 class Judge:
     def __init__(
         self,
         envs: list[EnvInventory],
-        findings: list[TrivyFinding],
+        findings: list[Finding],
         config: dict[str, Any],
         base_date: date,
         msrc: MsrcClient | None = None,
@@ -72,12 +84,13 @@ class Judge:
         self.config = config
         self.base_date = base_date
         self.msrc = msrc
-        self.findings: dict[tuple[str, str], list[TrivyFinding]] = defaultdict(list)
+        self.findings: dict[tuple[str, str], list[Finding]] = defaultdict(list)
         self.cvss: dict[str, float] = {}
         for finding in findings:
-            self.findings[(finding.env, finding.cve_id)].append(finding)
-            if finding.cvss is not None:
-                self.cvss[finding.cve_id] = max(self.cvss.get(finding.cve_id, 0.0), finding.cvss)
+            for vuln_id in finding.match_ids:
+                self.findings[(finding.env, vuln_id)].append(finding)
+                if finding.cvss is not None:
+                    self.cvss[vuln_id] = max(self.cvss.get(vuln_id, 0.0), finding.cvss)
         self.all_findings = findings
 
     # ------------------------------------------------------------ 個別の判定
@@ -90,14 +103,23 @@ class Judge:
         )
 
     def _judge_cve(self, advisory: Advisory, env: EnvInventory) -> tuple[list[Verdict], bool]:
-        """Trivy と Windows OS（MSRC）による判定。2つ目の戻り値は MSRC で結論が出たか。"""
+        """脆弱性データベースと Windows OS（MSRC）による判定。2つ目の戻り値は MSRC で結論が出たか。"""
         rows = []
-        for finding in self.findings.get((env.name, advisory.cve_id), []):
+        seen: set[int] = set()
+        for finding in self.findings.get((env.name, advisory.cve_id.upper()), []):
+            if id(finding) in seen:
+                continue
+            seen.add(id(finding))
             condition = advisory.affected_version or (f"修正: {finding.fixed_version}" if finding.fixed_version else "")
+            notes = []
+            if finding.uncomparable:
+                notes.append("脆弱性データの版と比較できないため安全側で影響ありと判定")
+            if finding.cvss is None and finding.severity:
+                notes.append(f"CVSS 不明（ベンダーの深刻度: {finding.severity}）")
             rows.append(self._base(
-                advisory, env, AFFECTED, CAT_TRIVY, package=finding.pkg_name,
-                version=finding.installed_version, condition=condition, path=finding.path or finding.sbom,
-                cvss=finding.cvss,
+                advisory, env, AFFECTED_UNCOMPARABLE if finding.uncomparable else AFFECTED, CAT_TRIVY,
+                package=finding.pkg_name, version=finding.installed_version, condition=condition,
+                path=finding.path or finding.sbom, cvss=finding.cvss, note=" / ".join(notes),
             ))
         decided = False
         if self.msrc is not None:
@@ -143,7 +165,7 @@ class Judge:
             common = dict(package=component.name if not component.group else f"{component.group}:{component.name}",
                           version=component.version, path=component.path or component.source)
             if advisory.affected_version:
-                matched = version_matches(component.version, advisory.affected_version)
+                matched = version_matches_in(component.version, advisory.affected_version, _ecosystem_of(component, env))
                 if matched is True:
                     rows.append(self._base(advisory, env, AFFECTED, CAT_RULE, **common))
                 elif matched is False:
@@ -154,12 +176,12 @@ class Judge:
             elif not advisory.cve_id:
                 rows.append(self._base(advisory, env, AFFECTED, CAT_RULE,
                                        note="影響バージョンの記載がないため全バージョンを対象と判定", **common))
-            elif component.scannable and env.cve_coverage:
+            elif component.checked:
                 rows.append(self._base(advisory, env, NOT_AFFECTED, CAT_RULE,
-                                       note="製品は存在するが Trivy でこの CVE は未検出", **common))
+                                       note="製品は存在するが脆弱性データベースでこの CVE は未検出", **common))
             else:
                 rows.append(self._base(advisory, env, AFFECTED_UNCOMPARABLE, CAT_RULE,
-                                       note="製品は存在するが影響バージョンの記載がなく Trivy でも判定できない", **common))
+                                       note="製品は存在するが影響バージョンの記載がなく、脆弱性データベースでも判定できない", **common))
         if rows:
             return rows
         for probe in env.failed_probes:
@@ -196,11 +218,11 @@ class Judge:
                 if key in seen:
                     continue                  # SBOM 内で重複しているコンポーネント
                 seen.add(key)
-                # Trivy とルールの両方で同じパッケージがヒットした場合は1行にまとめる
+                # 脆弱性データベースとルールの両方で同じパッケージがヒットした場合は1行にまとめる
                 twin = None
                 if rule_row.affected:
                     candidates = [t for t in trivy_rows if id(t) not in used and t.version == rule_row.version
-                                  and matcher(_finding_component(TrivyFinding(env.name, t.cve_id, t.package, t.version)))]
+                                  and matcher(_finding_component(Finding(env.name, t.cve_id, t.package, t.version)))]
                     twin = next((t for t in candidates if t.path == rule_row.path), None) or next(
                         (t for t in candidates if not t.path or not rule_row.path), None)
                 if twin is None:
@@ -210,12 +232,16 @@ class Judge:
                 twin.category = CAT_TRIVY_RULE
                 twin.path = twin.path or rule_row.path
         elif not rows and not msrc_decided:
-            if env.cve_coverage:
+            if env.missing_db:
+                missing = "、".join(f"{k}（{v} 件）" for k, v in sorted(env.missing_db.items()))
+                rows.append(self._base(advisory, env, UNKNOWN, CAT_TRIVY,
+                                       note=f"脆弱性データが無く照合していないパッケージがあります: {missing}"))
+            elif env.cve_coverage:
                 rows.append(self._base(advisory, env, NOT_DETECTED, CAT_TRIVY,
                                        note="製品名の記載がないため「未使用」との区別はできません"))
             else:
                 rows.append(self._base(advisory, env, UNKNOWN, CAT_TRIVY,
-                                       note="Trivy で判定できる SBOM がありません"))
+                                       note="脆弱性データベースで照合できるパッケージがありません"))
 
         affected = [r for r in rows if r.affected]
         if affected:
@@ -251,17 +277,22 @@ class Judge:
             result.messages.append(
                 f"{self.msrc.error}。Windows OS のビルド番号による判定は行っていません。")
         if not only_advisory:
-            known = {a.cve_id for a in advisories if a.cve_id}
+            known = {a.cve_id.upper() for a in advisories if a.cve_id}
             env_map = {e.name: e for e in self.envs}
             for finding in self.all_findings:
-                if finding.cve_id in known:
+                if finding.match_ids & known:
                     continue
                 env = env_map[finding.env]
+                notes = [finding.title]
+                if finding.uncomparable:
+                    notes.insert(0, "版を比較できないため安全側で検出扱い")
+                if finding.cvss is None and finding.severity:
+                    notes.insert(0, f"CVSS 不明（ベンダーの深刻度: {finding.severity}）")
                 row = Verdict(
                     status=STATUS_NEW, env=env.name, exposure=env.exposure, category=CAT_NEW,
                     cve_id=finding.cve_id, package=finding.pkg_name, version=finding.installed_version,
                     condition=f"修正: {finding.fixed_version}" if finding.fixed_version else "",
-                    path=finding.path or finding.sbom, cvss=finding.cvss, note=finding.title,
+                    path=finding.path or finding.sbom, cvss=finding.cvss, note=" / ".join(n for n in notes if n),
                 )
                 row.rank, row.deadline, row.base_date = decide_rank(
                     None, row.cvss, env.exposure, self.config, self.base_date)

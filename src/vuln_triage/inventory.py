@@ -131,7 +131,9 @@ def load_cyclonedx(data: dict, env: EnvInventory, source: str) -> None:
             if env.os_family == "unknown":
                 env.os_family = "windows" if "windows" in str(item.get("name", "")).lower() else "linux"
             if not env.os_name:
-                env.os_name = f"{item.get('name', '')} {item.get('version', '')}".strip()
+                env.os_name = str(item.get("description") or f"{item.get('name', '')} {item.get('version', '')}").strip()
+            env.os_id = env.os_id or str(item.get("name") or "").lower()
+            env.os_version_id = env.os_version_id or str(item.get("version") or "")
             continue
         if item is metadata or ctype == "file" or not item.get("name"):
             continue
@@ -145,7 +147,7 @@ def load_cyclonedx(data: dict, env: EnvInventory, source: str) -> None:
         env.components.append(Component(
             name=str(item["name"]), version=str(item.get("version") or pversion or ""), kind=kind,
             group=str(group or ""), purl=purl, path=_component_path(item), source=source,
-            extra_names=extra, scannable=True,
+            extra_names=extra, scannable=bool(purl), sbom_file=source,
         ))
         count += 1
     section = env.sections.setdefault("sbom", SectionStatus(count=0))
@@ -322,6 +324,8 @@ def load_osinfo(data: dict, env: EnvInventory, source: str) -> None:
     os_info = data.get("os") or {}
     env.os_family = str(os_info.get("family") or "linux")
     env.os_name = str(os_info.get("pretty_name") or f"{os_info.get('id', '')} {os_info.get('version_id', '')}").strip()
+    env.os_id = str(os_info.get("id") or env.os_id).lower()
+    env.os_version_id = str(os_info.get("version_id") or env.os_version_id)
     env.emr_release = str(data.get("emr_release") or "")
     _load_common(data, env, source)
     syft = data.get("syft") or {}

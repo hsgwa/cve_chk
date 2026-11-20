@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .inventory import _component_path, _walk_components, read_text
-from .models import EnvInventory, TrivyFinding
+from .models import EnvInventory, Finding as TrivyFinding
 
 
 class TrivyNotFoundError(RuntimeError):
@@ -17,8 +17,7 @@ class TrivyNotFoundError(RuntimeError):
             "Trivy が見つかりません。\n"
             "  1. https://github.com/aquasecurity/trivy/releases から Windows 用 zip を入手して展開し、\n"
             "     trivy.exe のあるフォルダを PATH に追加するか、config.yaml の trivy.path に場所を書いてください。\n"
-            "  2. Trivy を使わずに実行する場合は --skip-trivy を付けてください\n"
-            "     （CVE 番号だけの通達は「判定不能」になります）。\n"
+            "  2. Trivy を使わない場合は --scanner osv（手元の脆弱性データ。既定）を使ってください。\n"
             "  3. 保存済みの Trivy 結果を使う場合は --trivy-results-dir を指定してください。")
 
 
@@ -155,6 +154,9 @@ def scan_environments(
                 env.warnings.append(str(exc))
                 continue
             env.scanned_sboms += 1
+            for component in env.components:
+                if component.sbom_file == sbom.name:
+                    component.checked = True
             findings.extend(parse_results(data, env.name, sbom, config))
     # 同じ jar が複数の SBOM（jbom と自前解析）に出た場合の重複を除く
     unique: dict[tuple, TrivyFinding] = {}

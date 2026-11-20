@@ -7,8 +7,12 @@
 [オフライン Windows] collect_win.ps1（スクリプトのみ）→ out/<ホスト名>/inventory.json
           │  フォルダごと回収
           ▼
-[管理 PC（ネット接続あり）] vuln-triage run → report.xlsx / CSV
+[管理 PC（ネット接続あり）]
+   vuln-triage db-update  … 脆弱性データ（OSV.dev / Amazon Linux の公式情報）を手元に取得
+   vuln-triage run        … 手元のデータだけで照合 → report.xlsx / CSV
 ```
+
+管理 PC でも **exe は不要**です（Python と標準ライブラリ、pip で入る依存だけで動きます）。
 
 設計の経緯と詳細は [docs/PLAN.md](docs/PLAN.md) にあります。
 
@@ -20,15 +24,37 @@ Python 3.10 以降が必要です。
 pip install -e .
 ```
 
-CVE の照合には [Trivy](https://github.com/aquasecurity/trivy/releases) を使います。Windows 用の zip を展開し、`trivy.exe` のあるフォルダを PATH に追加するか、`config.yaml` の `trivy.path` に場所を書いてください。初回実行時に Trivy が脆弱性データベースを自動でダウンロードします。
-
-動作確認（Trivy 無しでも、保存済みの結果を使って実行できます）:
+動作確認（同梱のサンプルと、サンプル用の小さな脆弱性データで動きます。ネット接続も不要）:
 
 ```
 vuln-triage run --inventory-dir examples/inventory --env-master examples/env_master.csv ^
-  --advisory examples/advisory_list.xlsx --trivy-results-dir examples/trivy_fixtures ^
+  --advisory examples/advisory_list.xlsx --db-dir examples/vulndb ^
   --cache-dir examples/cache --offline --base-date 2026-11-20 --out-dir out
 ```
+
+### 脆弱性データの取得（db-update）
+
+CVE の照合は、ダウンロードして手元に置いた脆弱性データだけで行います。回収データを置いたら、まず次を実行してください。
+
+```
+vuln-triage db-update --inventory-dir inventory
+```
+
+回収データに出てくるパッケージの種類を見て、必要なデータだけを取得し、`vulndb/` に照合用の索引（SQLite）を作ります。**週に 1 回程度、または通達を照合する前に**実行してください（7 日より古いデータで `run` すると警告が出ます）。
+
+| データ | 取得元 | 大きさの目安 |
+|---|---|---|
+| Java（Maven）/ Python / npm / NuGet / Go / Rust / Ruby など | OSV.dev（Google が公開している脆弱性データ） | Maven 10 MB、PyPI 37 MB、npm 212 MB など |
+| Amazon Linux 2 / 2023 の OS パッケージ | Amazon Linux の公式リポジトリの updateinfo | 各 2〜3 MB |
+| Ubuntu / Debian / RHEL / Rocky / AlmaLinux の OS パッケージ | OSV.dev | Ubuntu 784 MB、Debian 80 MB、Red Hat 28 MB |
+| CVSS の点数（Amazon Linux 用） | OSV.dev の Debian データ（OS パッケージがある場合に自動で取得） | 80 MB |
+
+- 管理 PC から次のホストへ HTTPS（Amazon Linux 2 は HTTP）で出られる必要があります: `osv-vulnerabilities.storage.googleapis.com`、`amazonlinux.default.amazonaws.com`、`cdn.amazonlinux.com`、`al2023-repos-*.s3.dualstack.*.amazonaws.com`。社内プロキシは環境変数 `HTTPS_PROXY` / `HTTP_PROXY` で指定します。
+- 送るのはダウンロードの要求だけで、パッケージ名やホスト名などの回収データは外部に送りません。
+- 管理 PC から取得できない場合は、別の PC のブラウザで `https://osv-vulnerabilities.storage.googleapis.com/<エコシステム名>/all.zip`（例 `Maven/all.zip`）を保存し、`vuln-triage db-update --import Maven=Maven.zip` で取り込めます。
+- 取得済みのデータは `vuln-triage db-update --list` で確認できます。
+
+Trivy（`trivy.exe`）を使いたい場合は `--scanner trivy` で従来どおり使えます（7 章参照）。
 
 ## 2. 回収（オフライン環境）
 
@@ -111,7 +137,7 @@ batch-emr,internal,分析基盤
 
 | 種類 | 書き方 | 判定方法 |
 |---|---|---|
-| CVE 指定 | `cve_id` を書く。`product_name` と `affected_version` も書くと精度が上がる | Trivy。Windows OS の CVE は OS のビルド番号 |
+| CVE 指定 | `cve_id` を書く。`product_name` と `affected_version` も書くと精度が上がる | 手元の脆弱性データ。Windows OS の CVE は OS のビルド番号 |
 | 製品名＋版 | `product_name` と `affected_version`（例 `>=2.0.0,<2.17.1`、`<=3.0.12`、`9.0.*`） | 回収データの名前と版を直接比較 |
 | Windows パッチ | `product_name` に KB 番号、`affected_version` に `missing`。`KB5034441\|KB5035845` と書くと、どれか適用済みなら可 | 適用済み KB の一覧 |
 
@@ -122,6 +148,7 @@ batch-emr,internal,分析基盤
 ## 4. 実行
 
 ```
+vuln-triage db-update    --inventory-dir inventory
 vuln-triage check-inputs --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx
 vuln-triage run          --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx --out-dir out
 ```
@@ -134,9 +161,8 @@ vuln-triage run          --inventory-dir inventory --env-master env_master.csv -
 |---|---|
 | `--only-advisory` | 会社公表リストにある脆弱性だけを出力する |
 | `--base-date YYYY-MM-DD` | 実行日として扱う日付 |
-| `--skip-trivy` | Trivy を使わない（CVE だけの通達は「判定不能」） |
-| `--save-trivy-json DIR` | Trivy の生の結果を証跡として保存 |
-| `--trivy-results-dir DIR` | 保存済みの Trivy 結果で再判定 |
+| `--db-dir DIR` | 脆弱性データの置き場所（既定 `vulndb`） |
+| `--scanner osv / trivy / none` | CVE の照合方法（既定 `osv` = 手元の脆弱性データ） |
 | `--no-msrc` / `--offline` | Windows OS のビルド番号判定を行わない / キャッシュだけで行う |
 | `--resolve-hashes` | 名前の分からない jar を SHA-1 で Maven Central に照会 |
 
@@ -150,8 +176,8 @@ vuln-triage run          --inventory-dir inventory --env-master env_master.csv -
 | 通達別一覧 | 1 行 = 通達 1 件。総合判定と、影響あり / 影響なし / 未使用 / 対象外 / 判定不能の環境名 |
 | 通達×環境 | 行 = 通達、列 = 環境の一覧表 |
 | 明細 | 1 行 = 通達 × 環境 × パッケージ。影響なし・未使用も含む全件（証跡） |
-| 新規検出（参考） | 通達には無いが Trivy が検出した脆弱性 |
-| 収集状況 | 環境ごとの回収日時、回収ファイル、読めなかったフォルダ、走査範囲外で動いているプログラム |
+| 新規検出（参考） | 通達には無いが脆弱性データとの照合で見つかった脆弱性 |
+| 収集状況 | 環境ごとの回収日時、回収ファイル、CVE 照合の可否、読めなかったフォルダ、走査範囲外で動いているプログラム |
 
 同じ内容の CSV（BOM 付き UTF-8）も `report_summary.csv`、`report_detail.csv`、`report_new_findings.csv` として出ます。
 
@@ -159,17 +185,17 @@ vuln-triage run          --inventory-dir inventory --env-master env_master.csv -
 
 | 値 | 意味 |
 |---|---|
-| 影響あり | Trivy が検出、または製品の版が条件に該当、または KB 未適用 |
+| 影響あり | 脆弱性データとの照合で検出、または製品の版が条件に該当、または KB 未適用 |
 | 影響あり（比較不能） | 製品はあるが版を比較できない（安全側の判定） |
 | 影響なし | 製品はあるが、版が条件の外／修正済み／KB 適用済み |
-| 影響なし（CVE未検出） | CVE だけの通達で Trivy が検出しなかった（未使用との区別は不可） |
+| 影響なし（CVE未検出） | CVE だけの通達で、照合しても検出されなかった（未使用との区別は不可） |
 | 未使用 | その製品が回収データに存在しない |
 | 対象外 | Windows 向けの通達に対する Linux 環境など |
 | 判定不能 | 判定に必要なデータを回収できていない |
 
 ### 社内ランクと対応期限
 
-通達にランク・日数が書かれていればそれを使い、無ければ CVSS v3 と公開区分から決めます（`config.yaml` の `rank_matrix`）。
+通達にランク・日数が書かれていればそれを使い、無ければ CVSS v3 と公開区分から決めます（`config.yaml` の `rank_matrix`）。CVSS は脆弱性データに入っている CVSS v3 のベクトルから計算します（v4 は使いません）。
 
 | CVSS v3 | internet | internal |
 |---|---|---|
@@ -186,14 +212,28 @@ vuln-triage run          --inventory-dir inventory --env-master env_master.csv -
 
 - **対象外**: コンテナの中身、Lambda の実行環境そのもの、AWS マネージドサービス側、Windows の Go / Rust 製 exe の内部依存。
 - **取りこぼしうるもの**: 権限不足で読めなかったフォルダ、走査対象に入れなかったフォルダ、ネットワークドライブ上のソフト、表に登録していない商用ソフト。「収集状況」シートで確認してください。
-- **判定の限界**: Trivy のデータベースに無い脆弱性は検出されません。「影響あり」は版の一致であり、実際に攻撃可能かは判定しません。製品名の表記が違うと「未使用」になります。
+- **判定の限界**: 脆弱性データ（OSV.dev、Amazon Linux の公式情報）に無い脆弱性は検出されません。「影響あり」は版の一致であり、実際に攻撃可能かは判定しません。製品名の表記が違うと「未使用」になります。
+- **照合の精度（Trivy との比較で確認済み）**: Amazon Linux 2 / 2023 の OS パッケージと、Java・Python・npm・Go・Rust のライブラリは、Trivy の検出をすべて拾えることを確認しました。Ruby は Trivy 独自のデータ源の分だけ少なくなります。**Ubuntu / Debian の OS パッケージは、データ源の違いから Trivy と結果が大きく異なります**（参考扱い）。
+- **Amazon Linux**: 取得するのは x86_64 の core リポジトリの情報です（arm64 も同じ版番号のため流用）。amazon-linux-extras のトピックや EMR 独自のパッケージは含みません。公式情報に CVSS が無いため、Debian のデータの同じ CVE から点数を引いています（見つからなければ「CVSS 不明」で Rank-C、備考に Amazon の深刻度を表示）。
 - **Windows 用スクリプトは Windows 実機では未検証です**（Linux 上の PowerShell 7 で、ファイル解析の部分だけ確認済み）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
 - **Windows OS のビルド番号判定と `--resolve-hashes` は、実際の外部サービスに接続した確認ができていません。** 初回実行時に「取得できませんでした」と出る、または明らかにおかしい結果になる場合は連絡してください。
 
-## 7. 開発
+## 7. Trivy を使う場合（任意）
+
+`trivy.exe` を使える環境では、従来どおり Trivy で照合することもできます。
+
+```
+vuln-triage run ... --scanner trivy [--save-trivy-json DIR] [--trivy-results-dir DIR]
+```
+
+`trivy.exe` は PATH に置くか、`config.yaml` の `trivy.path` に場所を書きます。注意: **syft が出す SBOM の Amazon Linux（OS 名 `amzn`）は Trivy では「未対応の OS」と扱われ、OS パッケージが照合されません**（確認済み）。Amazon Linux を含む場合は既定の `--scanner osv` を使ってください。
+
+## 8. 開発
 
 ```
 pip install -e ".[dev]"
 pytest
 python examples/make_advisory_list.py     # サンプルの会社公表リストを作り直す
 ```
+
+`examples/vulndb/` は、本物の OSV.dev / Amazon Linux のデータから、サンプルのパッケージに関係する記録だけを抜き出したものです（`db-update --import` で作成）。

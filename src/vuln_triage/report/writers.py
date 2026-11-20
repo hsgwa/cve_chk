@@ -66,6 +66,8 @@ def overview_lines(info: dict[str, Any], config: dict[str, Any], messages: list[
     if info["overdue"]:
         lines.append(f"期限超過: {info['overdue']} 行")
     lines.append(f"通達に無い新規検出（参考）: {info['new_findings']} 件")
+    if info.get("db"):
+        lines.append("脆弱性データの取得日: " + "、".join(f"{k} {v}" for k, v in info["db"].items()))
     if info["unregistered"]:
         lines.append("注意: env_master 未登録のため internal 扱いにした環境: " + "、".join(info["unregistered"]))
     lines.extend(f"注意: {m}" for m in messages)
@@ -80,6 +82,7 @@ def write_reports(
     config: dict[str, Any],
     today: date,
     xlsx: bool = True,
+    db_info: dict[str, dict] | None = None,
 ) -> tuple[list[Path], list[str]]:
     out = Path(out_dir)
     summary = tables.summary_table(advisories, result.rows, config)
@@ -87,7 +90,7 @@ def write_reports(
     new = tables.detail_table(result.new_findings, config)
     coverage = tables.coverage_table(envs, today, config)
     matrix_header, matrix = tables.matrix_table(advisories, result.rows, envs)
-    info = tables.overview(advisories, result.rows, result.new_findings, envs, config)
+    info = tables.overview(advisories, result.rows, result.new_findings, envs, config, db_info)
     lines = overview_lines(info, config, result.messages)
 
     written = [out / "report_summary.csv", out / "report_detail.csv"]

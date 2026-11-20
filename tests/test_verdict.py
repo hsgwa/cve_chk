@@ -12,7 +12,7 @@ from vuln_triage.models import (
     UNKNOWN,
     UNUSED,
     FailedProbe,
-    TrivyFinding,
+    Finding,
 )
 from vuln_triage.verdict import CAT_KB, CAT_MSRC, CAT_RULE, CAT_TRIVY, CAT_TRIVY_RULE, STATUS_NEW, Judge
 
@@ -89,9 +89,9 @@ def test_no_version_condition(config):
     assert one(config, make_advisory(product_name="FooSoft"), env)[0].status == AFFECTED
     # CVE あり・版の記載なし・Trivy で判定できない製品 → 安全側
     assert one(config, make_advisory(product_name="FooSoft", cve_id="CVE-2024-1"), env)[0].status == AFFECTED_UNCOMPARABLE
-    # Trivy が判定できるパッケージで未検出 → 影響なし
-    jar = comp("log4j-core", "2.17.1", kind=KIND_MAVEN, group="org.apache.logging.log4j", scannable=True)
-    scanned = make_env(components=[jar], scanned_sboms=1)
+    # 脆弱性データベースで照合したパッケージで未検出 → 影響なし
+    jar = comp("log4j-core", "2.17.1", kind=KIND_MAVEN, group="org.apache.logging.log4j", scannable=True, checked=True)
+    scanned = make_env(components=[jar])
     assert one(config, make_advisory(product_name="log4j-core", cve_id="CVE-2021-44228"), scanned)[0].status == NOT_AFFECTED
 
 
@@ -115,7 +115,7 @@ def test_kb_alternatives(config):
 def test_cve_trivy_and_rule_are_merged(config):
     jar = comp("log4j-core", "2.14.1", kind=KIND_MAVEN, group="org.apache.logging.log4j", path="/opt/a.jar", scannable=True)
     env = make_env(exposure="internet", components=[jar], scanned_sboms=1)
-    finding = TrivyFinding("env1", "CVE-2021-44228", "org.apache.logging.log4j:log4j-core", "2.14.1", "2.15.0",
+    finding = Finding("env1", "CVE-2021-44228", "org.apache.logging.log4j:log4j-core", "2.14.1", "2.15.0",
                            "/opt/a.jar", 10.0)
     advisory = make_advisory(cve_id="CVE-2021-44228", product_name="log4j-core", affected_version=">=2.0,<2.15.0")
     rows = one(config, advisory, env, [finding])
@@ -136,7 +136,7 @@ def test_cve_only(config):
     scanned = make_env(components=[comp("x", "1")], scanned_sboms=1)
     assert one(config, advisory, scanned)[0].status == NOT_DETECTED
     assert one(config, advisory, make_env(components=[comp("x", "1")]))[0].status == UNKNOWN
-    finding = TrivyFinding("env1", "CVE-2023-32681", "requests", "2.25.0", "2.31.0", "/site-packages", 6.1)
+    finding = Finding("env1", "CVE-2023-32681", "requests", "2.25.0", "2.31.0", "/site-packages", 6.1)
     row = one(config, advisory, scanned, [finding])[0]
     assert (row.status, row.category, row.condition, row.rank) == (AFFECTED, CAT_TRIVY, "修正: 2.31.0", "Rank-C")
 
@@ -169,8 +169,8 @@ def test_run_covers_every_advisory_and_env(config):
 
 def test_new_findings_and_only_advisory(config):
     env = make_env("a", exposure="internet", components=[comp("x", "1")], scanned_sboms=1)
-    findings = [TrivyFinding("a", "CVE-2024-1", "known", "1", "2", "/p", 9.8),
-                TrivyFinding("a", "CVE-2024-2", "newpkg", "1", "2", "/q", 9.8)]
+    findings = [Finding("a", "CVE-2024-1", "known", "1", "2", "/p", 9.8),
+                Finding("a", "CVE-2024-2", "newpkg", "1", "2", "/q", 9.8)]
     advisories = [make_advisory(cve_id="CVE-2024-1")]
     result = judge(config, [env], findings).run(advisories)
     assert [(r.cve_id, r.status, r.rank) for r in result.new_findings] == [("CVE-2024-2", STATUS_NEW, "Rank-S")]
@@ -182,9 +182,59 @@ def test_same_jar_in_two_places_keeps_both_rows(config):
         return comp("log4j-core", "2.14.1", kind=KIND_MAVEN, group="org.apache.logging.log4j", path=path, scannable=True)
 
     env = make_env(components=[jar("/a/log4j.jar"), jar("/b/log4j.jar"), jar("/b/log4j.jar")], scanned_sboms=1)
-    finding = TrivyFinding("env1", "CVE-2021-44228", "org.apache.logging.log4j:log4j-core", "2.14.1", "2.15.0",
+    finding = Finding("env1", "CVE-2021-44228", "org.apache.logging.log4j:log4j-core", "2.14.1", "2.15.0",
                            "/a/log4j.jar", 10.0)
     advisory = make_advisory(cve_id="CVE-2021-44228", product_name="log4j-core", affected_version="<2.15.0")
     rows = one(config, advisory, env, [finding])
     assert sorted((r.path, r.category) for r in rows) == [("/a/log4j.jar", CAT_TRIVY_RULE), ("/b/log4j.jar", CAT_RULE)]
     assert all(r.cvss == 10.0 and r.rank == "Rank-A" for r in rows)
+
+
+def test_cve_only_with_missing_database(config):
+    env = make_env(components=[comp("x", "1", checked=True)])
+    env.missing_db = {"Ubuntu": 120}
+    row = one(config, make_advisory(cve_id="CVE-2024-1"), env)[0]
+    assert row.status == UNKNOWN and "Ubuntu（120 件）" in row.note
+
+
+def test_finding_matches_by_any_id_and_vendor_severity(config):
+    env = make_env(components=[comp("x", "1", checked=True)])
+    finding = Finding("env1", "ALAS2-2024-1", "openssl-libs", "1:1.0.2k-24.amzn2.0.4", "1:1.0.2k-24.amzn2.0.10",
+                      "", None, "important", ids=("ALAS2-2024-1", "CVE-2024-5535"))
+    row = one(config, make_advisory(cve_id="cve-2024-5535"), env, [finding])[0]
+    assert row.status == AFFECTED and "ベンダーの深刻度: important" in row.note and row.rank == "Rank-C"
+    uncomparable = Finding("env1", "CVE-2024-9", "p", "weird", ids=("CVE-2024-9",), uncomparable=True)
+    assert one(config, make_advisory(cve_id="CVE-2024-9"), env, [uncomparable])[0].status == AFFECTED_UNCOMPARABLE
+
+
+def test_new_findings_skip_known_aliases(config):
+    env = make_env("a", components=[comp("x", "1", checked=True)])
+    finding = Finding("a", "GHSA-xxxx", "p", "1", ids=("GHSA-xxxx", "CVE-2024-1"))
+    result = judge(config, [env], [finding]).run([make_advisory(cve_id="CVE-2024-1")])
+    assert result.new_findings == []
+
+
+def test_multi_cve_advisory_matches_only_its_own_cve(config):
+    # 1つの告知（ALAS）に CVE が2つ → CVE ごとの検出。通達の CVE には、その CVE の検出だけを紐づける
+    env = make_env(components=[comp("x", "1", checked=True)])
+    ids = ("ALAS2023-2024-1", "CVE-2024-4741", "CVE-2024-5535")
+    findings = [Finding("env1", "CVE-2024-4741", "openssl-libs", "1:3.0.8-1", ids=ids),
+                Finding("env1", "CVE-2024-5535", "openssl-libs", "1:3.0.8-1", ids=ids)]
+    rows = one(config, make_advisory(cve_id="CVE-2024-5535"), env, findings)
+    assert [(r.status, r.package) for r in rows] == [(AFFECTED, "openssl-libs")]
+    result = judge(config, [env], findings).run([make_advisory(cve_id="CVE-2024-5535")])
+    assert [f.cve_id for f in result.new_findings] == ["CVE-2024-4741"]
+    # ALAS 番号で書かれた通達には、その告知の検出がすべて紐づく
+    assert len(one(config, make_advisory(cve_id="ALAS2023-2024-1"), env, findings)) == 2
+
+
+def test_rule_uses_ecosystem_version_order(config):
+    rpm = comp("openssl-libs", "1:1.0.2k-16.amzn2.1.1",
+               purl="pkg:rpm/amzn/openssl-libs@1.0.2k-16.amzn2.1.1?epoch=1&distro=amzn-2")
+    env = make_env(components=[rpm])
+    advisory = make_advisory(product_name="openssl-libs", affected_version="<1:1.0.2k-24.amzn2.0.10")
+    assert one(config, advisory, env)[0].status == AFFECTED          # PEP 440 では「影響なし」と誤判定していた
+    jar = comp("log4j-core", "2.0-beta9", kind=KIND_MAVEN, group="org.apache.logging.log4j",
+               purl="pkg:maven/org.apache.logging.log4j/log4j-core@2.0-beta9")
+    advisory = make_advisory(product_name="log4j-core", affected_version=">=2.0-beta9,<2.15.0")
+    assert one(config, advisory, make_env(components=[jar]))[0].status == AFFECTED

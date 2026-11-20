@@ -52,6 +52,27 @@
      "value": "/usr/lib/spark/jars/spark-core_2.12-3.4.1-amzn-2.jar"
     }
    ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "rpm-0",
+   "name": "openssl-libs",
+   "version": "1:1.0.2k-24.amzn2.0.4",
+   "purl": "pkg:rpm/amzn/openssl-libs@1.0.2k-24.amzn2.0.4?arch=x86_64&distro=amzn-2&epoch=1&upstream=openssl-1.0.2k-24.amzn2.0.4.src.rpm"
+  },
+  {
+   "type": "library",
+   "bom-ref": "rpm-1",
+   "name": "python3",
+   "version": "3.7.16-1.amzn2.0.4",
+   "purl": "pkg:rpm/amzn/python3@3.7.16-1.amzn2.0.4?arch=x86_64&distro=amzn-2&upstream=python3-3.7.16-1.amzn2.0.4.src.rpm"
+  },
+  {
+   "type": "library",
+   "bom-ref": "rpm-2",
+   "name": "log4j-cve-2021-44228-hotpatch",
+   "version": "1.1-12.amzn2",
+   "purl": "pkg:rpm/amzn/log4j-cve-2021-44228-hotpatch@1.1-12.amzn2?arch=x86_64&distro=amzn-2&upstream=log4j-cve-2021-44228-hotpatch-1.1-12.amzn2.src.rpm"
   }
  ]
 }

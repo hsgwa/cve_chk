@@ -1,13 +1,17 @@
 # vuln-triage 実装計画（第3版）
 
-> **状態: 実装済み（初版）。** 使い方は [README](../README.md) を参照。この文書は設計の経緯と判断の記録で、実装時に次の点を計画から変更した。
+> **状態: 実装済み。** 使い方は [README](../README.md) を参照。この文書は設計の経緯と判断の記録で、実装時に次の点を計画から変更した。
 >
-> - **jbom.jar は使わない。** 実物（v1.2.1）で log4j-core 2.14.1 の jar を解析したところ、版が `core/pom`、PURL なしという誤った結果になり、Trivy で検出できなかった。Windows の jar は ps1 の自前解析（pom.properties → MANIFEST → ファイル名、入れ子対応）だけで取る。以下の本文で「jbom を併用」としている箇所はこの判断で無効。
+> - **CVE の照合は Trivy ではなく、手元の脆弱性データ（既定）で行う。** 管理 PC でも exe を使わないため。`vuln-triage db-update` が OSV.dev のエコシステム別 all.zip と、Amazon Linux 2 / 2023 の公式リポジトリの updateinfo.xml を取得し、SQLite の索引を作る。照合（版の比較、CVSS v3 の点数計算を含む）は Python で実装した。Trivy は `--scanner trivy` で任意に使える。以下の本文で Trivy を前提にしている箇所はこの判断で置き換わる。
+>   - Trivy との突き合わせ結果（実データ）: Amazon Linux 2 / 2023 の OS パッケージは Trivy の検出 313 件中 313 件（各）、Java / Python / npm / Go / Rust のライブラリも Trivy の検出をすべて検出。Ruby は Trivy 独自のデータ源（ruby-advisory-db）の 8 件が欠ける。Ubuntu の OS パッケージは、OSV.dev の Ubuntu データと Trivy の Ubuntu データの中身が違い、結果が大きく異なる（参考扱い）。
+>   - syft の SBOM（OS 名 `amzn`）を Trivy に渡すと Amazon Linux は「未対応の OS」となり OS パッケージが照合されないことを確認した。当初の Trivy 前提の設計では EMR などの OS パッケージを見落としていた。
+>   - Amazon Linux の公式情報には CVSS が無いため、Debian のデータ（OSV.dev）の同じ CVE から点数を引く（試験では 371 件中 341 件に点数が付いた）。
+> - **jbom.jar は使わない。** 実物（v1.2.1）で log4j-core 2.14.1 の jar を解析したところ、版が `core/pom`、PURL なしという誤った結果になった。Windows の jar は ps1 の自前解析だけで取る。
 > - **Windows の回収ファイルは 1 台 1 ファイル**（`inventory.json`）。
-> - モジュール構成は `report/tables.py`・`report/writers.py`、`config.py` など一部が下記の構成図と異なる。
 > - 「回収データが一部のみ（SBOM も inventory.json も無い）」の環境で製品が見つからない場合は、「未使用」ではなく「判定不能」にした。
-> - 同じ jar が複数の場所にある場合、Trivy は 1 件にまとめて報告するため、SBOM から場所を引き直してすべての場所を出すようにした。
-> - 検証状況: Linux の回収（syft 1.18.1）と Trivy 0.69.3 による判定は実物で確認済み。Windows 用スクリプトは Linux 上の PowerShell 7 でファイル解析部分のみ確認（レジストリ・KB・OS 情報は Windows 実機で未検証）。Microsoft の公開データ（MSRC）と Maven Central への接続は、開発環境から到達できず未検証。
+> - 通達の版条件は、パッケージの種類が分かる場合はその種類の比較規則（RPM、Debian、Maven など）で判定する（PEP 440 では `1:1.0.2k-24.amzn2.0.10` などを正しく比べられないため）。
+> - モジュール構成は `vulndb/`（取得・索引・照合）、`report/tables.py`・`report/writers.py`、`config.py` など一部が下記の構成図と異なる。
+> - 検証状況: Linux の回収（syft 1.18.1）、OSV.dev と Amazon Linux のデータ取得、照合は実データで確認済み。Windows 用スクリプトは Linux 上の PowerShell 7 でファイル解析部分のみ確認（レジストリ・KB・OS 情報は Windows 実機で未検証）。Microsoft の公開データ（MSRC）と Maven Central への接続は、開発環境から到達できず未検証。
 
 ## Context
 オフライン環境（AWS EC2/EMR/Lambda、Linux、Windows）で使っているソフトの一覧を回収し、会社公表の脆弱性リスト（Excel）と突き合わせて、**会社公表の脆弱性1件ごとに「未使用 / 影響なし / 影響あり」**と社内ランク・対応期限を出す Python CLI を新規構築する。リポジトリ `hsgwa/cve_chk` は空なので直下に作成し、ブランチ `ccr-62d85a9c-eh5nfl` に commit & push（PR は作らない）。

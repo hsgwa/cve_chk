@@ -90,3 +90,49 @@ def version_matches(installed: str, spec: str) -> bool | None:
     if specifier is None or version is None:
         return None
     return specifier.contains(version, prereleases=True)
+
+
+def _ecosystem_clause(installed: str, operator: str, version: str, ecosystem: str) -> bool:
+    from ..vulndb.versions import compare
+
+    if version.endswith(".*"):
+        prefix = version[:-2]
+        same = installed == prefix or installed.startswith(prefix + ".") or installed.startswith(prefix + "-")
+        if operator in ("", "==", "==="):
+            return same
+        if operator == "!=":
+            return not same
+        raise ValueError(operator)
+    result = compare(ecosystem, installed, version)
+    return {
+        "": result == 0, "==": result == 0, "===": result == 0, "!=": result != 0,
+        "<": result < 0, "<=": result <= 0, ">": result > 0, ">=": result >= 0,
+        "~=": result >= 0,
+    }[operator]
+
+
+def version_matches_in(installed: str, spec: str, ecosystem: str | None) -> bool | None:
+    """エコシステム（Maven、Amazon Linux など）の比較規則で版条件を判定する。
+
+    RPM の `1:1.0.2k-24.amzn2.0.10` や Debian の `3.0.2-0ubuntu1.10`、Maven の `2.0-beta9` は
+    PEP 440 として正しく比べられないため、エコシステムが分かる場合はこちらを使う。
+    """
+    if not ecosystem or ecosystem.split(":", 1)[0] == "PyPI":
+        return version_matches(installed, spec)
+    text = unicodedata.normalize("NFKC", spec or "").strip()
+    installed = unicodedata.normalize("NFKC", installed or "").strip()
+    if not text or not installed:
+        return None
+    try:
+        for raw in re.split(r"[,、]", text):
+            raw = raw.strip()
+            if not raw:
+                continue
+            match = _CLAUSE.match(raw)
+            if not match:
+                return None
+            if not _ecosystem_clause(installed, match.group(1) or "", match.group(2), ecosystem):
+                return False
+        return True
+    except (ValueError, KeyError):
+        return version_matches(installed, spec)

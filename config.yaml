@@ -24,7 +24,25 @@ aliases:
 # 回収からこの日数を超えたインベントリは「収集状況」シートで警告する。
 stale_days: 90
 
-# ---- Trivy -------------------------------------------------------------------
+# ---- CVE の照合方法 -----------------------------------------------------------
+# osv   = 手元の脆弱性データ（OSV.dev と Amazon Linux の公式情報。exe 不要。既定）
+# trivy = Trivy（trivy.exe が必要）
+# none  = CVE の照合をしない
+scanner: osv
+
+# ---- 手元の脆弱性データ（vuln-triage db-update で取得） ------------------------
+vulndb:
+  dir: vulndb             # 置き場所
+  max_age_days: 7         # これより古いデータで実行すると警告する
+  ubuntu_pro: false       # Ubuntu Pro（ESM）の修正情報も使う
+  # Amazon Linux の公式情報には CVSS が無いので、点数を引くために一緒に取るデータ
+  score_sources: [Debian]
+  # Amazon Linux の公式リポジトリ（ミラー一覧）。近いリージョンに変えてもよい
+  amazon_mirrors:
+    "2": http://amazonlinux.default.amazonaws.com/2/core/latest/x86_64/mirror.list
+    "2023": https://al2023-repos-us-east-1-de612dc2.s3.dualstack.us-east-1.amazonaws.com/core/mirrors/latest/x86_64/mirror.list
+
+# ---- Trivy（scanner: trivy の場合のみ） --------------------------------------
 trivy:
   path: ""            # 空なら PATH から探す。例: C:\tools\trivy\trivy.exe
   timeout_sec: 600
