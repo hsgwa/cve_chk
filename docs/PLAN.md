@@ -71,12 +71,34 @@ syft は Go 製の単一バイナリで、Windows 向けは `syft.exe` しか配
 - 自前解析が syft より弱い点: Go/Rust バイナリに埋め込まれた依存、jbom が使えない端末でのシェーディング jar。前者は `executables`（VersionInfo）と通達の製品名照合で補う。
 - 将来 AWS 側の手段（Inspector、スナップショット経由の syft）が使えるようになった場合、出力された CycloneDX を環境フォルダに置くだけで読める（ツール側の変更は不要）。
 
+#### 代替できる範囲（syft で Windows のフォルダを走査した場合との比較）
+| 対象 | syft | 代替（ps1 + jbom.jar） | 差 |
+|---|---|---|---|
+| Java（jar/war/ear、入れ子） | ○ | ○ jbom が使える端末は同等。無い端末は ps1 が pom.properties・MANIFEST・ファイル名・SHA-1 で特定 | Java が無い端末で、情報を持たない改名 jar は取りこぼしうる |
+| Python（インストール済み） | ○ | ○ dist-info / egg-info | ほぼ同等 |
+| Node.js / .NET | ○ | ○ package.json / deps.json | ほぼ同等（対象 Windows では未使用のため優先度低） |
+| Go / Rust 製 exe の内部依存 | ○ | × | 代替不可。製品名＋版の通達なら exe のバージョン情報で拾える |
+| 既知バイナリの版（java.exe、python.exe、OpenSSL dll 等） | ○ | ○ VersionInfo | Windows ではむしろ確実 |
+| インストール済み商用ソフト、KB、OS ビルド | × | ○ | 代替のほうが上 |
+- 自前スクリプトは新規に書くものなので、実機で1回、結果の突き合わせ確認を行う（README に手順）。
+
+### 対象ソフト別の方針（確認結果: Windows は Java・Python・HULFT・DataMagic、Linux は HULFT・DataMagic と EMR の Spark）
+**注意: Linux の HULFT / DataMagic は syft では検出できない**（rpm/deb ではなくインストーラで任意のフォルダに置かれる商用ソフトのため）。Linux でも下の「個別製品の版取得」が必須で、`collect_linux.sh` は syft の実行に加えてこの取得を必ず行い、結果を `os_info.json` の `custom_products` に書く。取得できなかった場合は「失敗」と記録し、該当通達の判定を「未使用」ではなく**「判定不能」**にする（入っているのに未使用と誤判定するのを防ぐ）。
+| 対象 | 取り方 | 判定 |
+|---|---|---|
+| **Java / Python（Windows）** | jbom.jar ＋ ps1（上記） | Trivy で CVE 照合 |
+| **HULFT / DataMagic**（商用。Trivy の DB にはほぼ載らない。Windows・Linux の両方にある） | Windows: レジストリのインストール情報＋インストール先 exe/dll の VersionInfo。Linux: 「個別製品の版取得」で、インストール先（環境変数やよくある配置先、実行中プロセスのパスから探す）の版情報ファイルまたは版表示コマンドから取る。見つけた場所は「検出パス」に出す | 通達の「製品名＋版条件」とのルール照合。`config.yaml` の `aliases` に表記ゆれ（例 `HULFT8`, `HULFT8 for Windows`）を登録 |
+| **EMR の Spark** | EMR ノード（マスター1台＋コア1台で可。同じクラスタ内のノードは同構成）で syft。`/usr/lib/spark/jars` 等の jar と OS パッケージが取れる | Trivy で CVE 照合。版に `-amzn-N` が付く（例 `3.4.1-amzn-2`）ため、版比較の正規化でこの接尾辞を扱う。EMR リリースラベル（例 `emr-6.15.0`）も os_info に記録し、「EMR x.y 以前」という通達に対応 |
+
+**個別製品の版取得（collectors 共通の仕組み）**: syft や標準の収集で取れない製品のために、収集スクリプトの冒頭に「製品名・版の取り方」を数行で足せる表を用意する。取り方は ①指定ファイルの VersionInfo（Windows）②指定ファイルの中身から正規表現で抜く ③指定コマンドの出力から正規表現で抜く、の3種類。結果は `custom_products` セクションに `{name, version, source}` で記録し、ルール照合の対象にする。
+- HULFT / DataMagic の版の取り方（インストール先、版を表示するコマンドやファイル）は環境依存で、こちらでは確認できない。**実装時に実機の情報（インストール先のパスと、版が分かる画面/コマンド）を教えてもらい、表の初期値として入れる**。
+
 **Linux（EC2 / EMR 各ノード）: `collect_linux.sh`**
 持ち込むもの: `collect_linux.sh` と `syft_<版>_linux_amd64.tar.gz`（arm64 の Graviton インスタンスがあれば arm64 版も）。スクリプトが同じフォルダの tar.gz を一時フォルダに展開して実行する（インストール不要、終了時に削除）。
 | ファイル | 取得方法 |
 |---|---|
 | `cdx_syft.json` | `./syft scan dir:/ --exclude ./proc --exclude ./sys --exclude ./dev --exclude ./run（＋変数で追加可） -o cyclonedx-json=cdx_syft.json`。rpm/deb・jar（入れ子含む）・pip・npm・Go バイナリを1ファイルに。OS 情報入りなので Trivy が OS パッケージの CVE を判定できる |
-| `os_info.json` | `/etc/os-release`、`uname -r`、ホスト名、回収日時、syft のバージョンと終了コード |
+| `os_info.json` | `/etc/os-release`、`uname -r`、ホスト名、回収日時、syft のバージョンと終了コード、EMR リリースラベル、`custom_products`（HULFT / DataMagic 等の版と取得の成否） |
 - syft はオフラインで動く（スクリプト内で `SYFT_CHECK_FOR_APP_UPDATE=false` を設定）。全ファイルを読むため root（sudo）での実行を推奨、時間がかかる場合に備え対象ディレクトリを絞る変数を用意。
 - `/tmp` が noexec で実行できない場合に備え、展開先を変数で変更可能にする。
 
