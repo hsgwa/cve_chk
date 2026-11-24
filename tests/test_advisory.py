@@ -123,3 +123,65 @@ def test_cell_types_for_every_field(tmp_path, config):
     assert by_id["3"].published_date == date(2026, 11, 2) and by_id["3"].deadline_days == 14
     assert by_id["A4"].published_date == date(2026, 11, 2)
     assert by_id["A5"].published_date is None
+
+
+def test_merged_cells_are_filled_by_default(tmp_path, config):
+    path = make_xlsx(tmp_path / "a.xlsx", [
+        ["通達番号", "CVE番号", "製品名"],
+        ["ADV-1", "CVE-2024-0001", "nginx"],
+        ["ADV-2", None, "openssl"],
+    ], merges=["B2:B3"])
+    warnings = []
+    items = load_advisories(path, config, warnings)
+    assert [(a.advisory_id, a.cve_id) for a in items] == [("ADV-1", "CVE-2024-0001"), ("ADV-2", "CVE-2024-0001")]
+    assert warnings == []
+
+
+def test_merged_cells_warn_when_not_filled(tmp_path, config):
+    path = make_xlsx(tmp_path / "a.xlsx", [
+        ["通達番号", "CVE番号", "製品名"],
+        ["ADV-1", "CVE-2024-0001", "nginx"],
+        ["ADV-2", None, "openssl"],
+    ], merges=["B2:B3"])
+    config["advisory_input"]["fill_merged"] = False
+    warnings = []
+    items = load_advisories(path, config, warnings)
+    assert items[1].cve_id == ""
+    assert len(warnings) == 1 and "B2:B3" in warnings[0]
+
+
+def test_other_sheets_with_data_are_warned(tmp_path, config):
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    first = workbook.active
+    first.title = "11月"
+    first.append(["通達番号", "CVE番号"])
+    first.append(["ADV-1", "CVE-2024-0001"])
+    second = workbook.create_sheet("12月")
+    second.append(["通達番号", "CVE番号"])
+    second.append(["ADV-2", "CVE-2024-0002"])
+    workbook.create_sheet("空のシート")
+    path = tmp_path / "a.xlsx"
+    workbook.save(path)
+    warnings = []
+    assert [a.advisory_id for a in load_advisories(path, config, warnings)] == ["ADV-1"]
+    assert len(warnings) == 1 and "「12月」" in warnings[0] and "空のシート" not in warnings[0]
+
+
+@pytest.mark.parametrize("text, warned", [
+    ("CVE-2024-0001", False),
+    ("CVE-2024-0001, CVE-2024-0002", False),
+    ("ＣＶＥ－２０２４－０００１", False),       # 全角は NFKC で読める
+    ("CVE-2024-123", True),                       # 番号の桁不足
+    ("CVE-2024-0001、CVE2024-0002", True),        # 2 つ目のハイフン抜け
+    ("2024-0001", True),                          # CVE- の書き忘れ
+    ("-", False),
+])
+def test_unreadable_cve_numbers_are_warned(tmp_path, config, text, warned):
+    path = make_xlsx(tmp_path / "a.xlsx", [["通達番号", "CVE番号", "製品名"], ["ADV-1", text, "nginx"]])
+    warnings = []
+    load_advisories(path, config, warnings)
+    assert bool(warnings) == warned
+    if warned:
+        assert "2 行目" in warnings[0]

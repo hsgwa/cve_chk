@@ -138,3 +138,16 @@ def test_env_master_and_unregistered(examples):
     envs = {e.name: e for e in load_inventories(examples / "inventory", master)}
     assert envs["web-ec2"].exposure == "internet" and envs["web-ec2"].registered
     assert envs["win-legacy"].exposure == "internal" and not envs["win-legacy"].registered
+
+
+def test_env_master_without_folder_is_reported(tmp_path):
+    """env_master にあるのに回収フォルダが無い環境を、黙って消さずに残す（回収漏れに気づけるように）。"""
+    (tmp_path / "inv" / "web").mkdir(parents=True)
+    master_csv = tmp_path / "env_master.csv"
+    master_csv.write_text("env_name,exposure,system_name\nweb,internet,A\nforgotten,internet,B\n", encoding="utf-8")
+    envs = {e.name: e for e in load_inventories(tmp_path / "inv", load_env_master(master_csv))}
+    assert set(envs) == {"web", "forgotten"}
+    missing = envs["forgotten"]
+    assert missing.not_collected and missing.registered and missing.exposure == "internet"
+    assert any("回収フォルダ" in w for w in missing.warnings)
+    assert not envs["web"].not_collected

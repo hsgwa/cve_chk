@@ -15,6 +15,7 @@ from .inventory import read_text
 from .models import Advisory
 
 _CVE = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE)
+_CVE_LIKE = re.compile(r"CVE|\d{4}\s*-\s*\d+", re.IGNORECASE)   # CVE 番号の書き損じ
 _DATE = re.compile(r"(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})")
 
 
@@ -68,11 +69,16 @@ def _parse_days(value: Any) -> int | None:
     return int(match.group(0)) if match else None
 
 
-def _read_xlsx(path: Path, settings: dict[str, Any]) -> list[list[Any]]:
+def _has_data(sheet) -> bool:
+    return any(value not in (None, "") for row in sheet.iter_rows(values_only=True) for value in row)
+
+
+def _read_xlsx(path: Path, settings: dict[str, Any], warnings: list[str]) -> list[list[Any]]:
     from openpyxl import load_workbook
 
-    fill_merged = bool(settings.get("fill_merged"))
-    workbook = load_workbook(path, data_only=True, read_only=not fill_merged)
+    fill_merged = bool(settings.get("fill_merged", True))
+    # 結合セルを調べるため read_only では開かない（read_only では結合の情報が取れない）
+    workbook = load_workbook(path, data_only=True)
     sheet_name = settings.get("sheet") or ""
     if sheet_name:
         if sheet_name not in workbook.sheetnames:
@@ -81,13 +87,26 @@ def _read_xlsx(path: Path, settings: dict[str, Any]) -> list[list[Any]]:
         sheet = workbook[sheet_name]
     else:
         sheet = workbook.worksheets[0]
+    # 読まないシートにデータがあれば知らせる（通達が別のシートにあると黙って漏れるため）
+    others = [ws.title for ws in workbook.worksheets if ws.title != sheet.title and _has_data(ws)]
+    if others:
+        warnings.append(
+            f"会社公表リストのシート「{sheet.title}」だけを読みました。データのある他のシート（"
+            + "、".join(f"「{name}」" for name in others)
+            + "）は読んでいません。通達があるなら、シートごとに config.yaml の advisory_input.sheet を指定して実行してください")
     rows = [list(row) for row in sheet.iter_rows(values_only=True)]
+    header_row = int(settings.get("header_row") or 1)
+    merged_ranges = [m for m in sheet.merged_cells.ranges if m.max_row > header_row and m.max_row > m.min_row]
     if fill_merged:
-        for merged in sheet.merged_cells.ranges:
+        for merged in merged_ranges:
             value = rows[merged.min_row - 1][merged.min_col - 1]
             for r in range(merged.min_row - 1, merged.max_row):
                 for c in range(merged.min_col - 1, merged.max_col):
                     rows[r][c] = value
+    elif merged_ranges:
+        warnings.append(
+            f"会社公表リストに縦に結合したセルが {len(merged_ranges)} 個あります（例: {merged_ranges[0].coord}）。"
+            "fill_merged が false のため、結合の 2 行目以降は空として読んでいます")
     workbook.close()
     return rows
 
@@ -96,11 +115,14 @@ def _read_csv(path: Path) -> list[list[Any]]:
     return [row for row in csv.reader(read_text(path).splitlines())]
 
 
-def load_advisories(path: str | Path, config: dict[str, Any]) -> list[Advisory]:
+def load_advisories(path: str | Path, config: dict[str, Any], warnings: list[str] | None = None) -> list[Advisory]:
+    """会社公表リストを読む。読み落としの恐れがあるもの（他のシート、結合セル、読めない CVE 番号）は
+    warnings に追加する。"""
     path = Path(path)
     settings = config.get("advisory_input") or {}
+    warnings = warnings if warnings is not None else []
     if path.suffix.lower() in (".xlsx", ".xlsm"):
-        rows = _read_xlsx(path, settings)
+        rows = _read_xlsx(path, settings, warnings)
     else:
         rows = _read_csv(path)
 
@@ -134,6 +156,10 @@ def load_advisories(path: str | Path, config: dict[str, Any]) -> list[Advisory]:
         if not cve_text and not product:
             continue
         cves = list(dict.fromkeys(m.upper() for m in _CVE.findall(cve_text))) or [""]
+        leftover = _CVE.sub("", cve_text)
+        if _CVE_LIKE.search(leftover):
+            warnings.append(f"{number} 行目: CVE 番号として読めない記載があります（{cve_text}）。"
+                            "CVE-年-番号（番号は 4 桁以上）の形か確認してください")
         common = dict(
             advisory_id=_cell_text(get(row, "advisory_id")) or f"行{number}",
             product_name=product,

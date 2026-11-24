@@ -39,6 +39,7 @@ CAT_RULE = "ルール（製品・版）"
 CAT_KB = "KB"
 CAT_MSRC = "Windows OS（ビルド番号）"
 CAT_NEW = "新規検出"
+CAT_NOT_COLLECTED = "回収なし"
 STATUS_NEW = "影響あり（新規検出）"
 
 # 影響ありが無い場合に、どの結果を代表にするか（左ほど優先）
@@ -144,6 +145,11 @@ class Judge:
                         advisory, env, status, CAT_MSRC, package=env.os_name or "Windows",
                         version=env.os_build, condition=detail, path="OS ビルド番号", cvss=info.get("cvss"),
                     ))
+                elif not rows and env.os_family == "unknown":
+                    rows.append(self._base(
+                        advisory, env, UNKNOWN, CAT_MSRC, package=advisory.product_name or "Windows",
+                        note="Windows OS の脆弱性だが、この環境の OS を回収データから判別できません",
+                    ))
                 elif not rows:
                     rows.append(self._base(
                         advisory, env, NOT_APPLICABLE, CAT_MSRC, package=advisory.product_name or "Windows",
@@ -153,6 +159,8 @@ class Judge:
 
     def _judge_kb(self, advisory: Advisory, env: EnvInventory) -> list[Verdict]:
         kbs = [kb for kb in (normalize_kb(part) for part in re.split(r"[|,、/\s]+", advisory.product_name)) if kb]
+        if env.os_family == "unknown":
+            return [self._base(advisory, env, UNKNOWN, CAT_KB, note="OS を回収データから判別できません")]
         if env.os_family != "windows":
             return [self._base(advisory, env, NOT_APPLICABLE, CAT_KB, note="Windows 以外の環境")]
         if env.hotfixes is None:
@@ -209,6 +217,11 @@ class Judge:
     # ------------------------------------------------------------ まとめ
 
     def judge_one(self, advisory: Advisory, env: EnvInventory) -> list[Verdict]:
+        if env.not_collected:
+            # env_master にあるのに回収フォルダが無い環境。どの通達も「判定不能」にして回収漏れを示す
+            return [self._base(advisory, env, UNKNOWN, CAT_NOT_COLLECTED,
+                               note=self._join_note("env_master に登録済みですが、回収データがありません（回収漏れ）",
+                                                    advisory.note))]
         rows: list[Verdict] = []
         msrc_decided = False
         if advisory.cve_id:

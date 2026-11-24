@@ -70,6 +70,9 @@ def overview_lines(info: dict[str, Any], config: dict[str, Any], messages: list[
         lines.append("脆弱性データの更新日時: " + "、".join(f"{k} {v.strip()}" for k, v in info["db"].items()))
     if info["unregistered"]:
         lines.append("注意: env_master 未登録のため internal 扱いにした環境: " + "、".join(info["unregistered"]))
+    if info.get("not_collected"):
+        lines.append("注意: env_master に登録済みだが回収データが無い環境（判定不能として出力）: "
+                     + "、".join(info["not_collected"]))
     lines.extend(f"注意: {m}" for m in messages)
     return lines
 

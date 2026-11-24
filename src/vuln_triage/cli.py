@@ -168,15 +168,18 @@ def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory
         envs = load_inventories(inventory_dir, load_env_master(env_master))
         if not envs:
             raise click.ClickException(f"環境フォルダがありません: {inventory_dir}")
-        advisories = load_advisories(advisory, config)
+        advisory_warnings: list[str] = []
+        advisories = load_advisories(advisory, config, advisory_warnings)
         _echo(f"環境 {len(envs)} 件、通達 {len(advisories)} 件を読み込みました")
+        for warning in advisory_warnings:
+            _echo(f"注意: {warning}")
 
         if resolve:
             count, error = resolve_hashes(envs, Path(cache_dir) / "maven_sha1.json")
             _echo(f"SHA-1 で特定できた jar: {count} 件" + (f"（{error}）" if error else ""))
 
         findings = []
-        messages = []
+        messages = list(advisory_warnings)
         if scanner == "osv":
             db = VulnDB(db_dir or config["vulndb"]["dir"], config)
             if not db.exists():
@@ -245,7 +248,8 @@ def check_inputs(inventory_dir, env_master, config_path, advisory):
     try:
         config = load_config(config_path or _default_config())
         envs = load_inventories(inventory_dir, load_env_master(env_master))
-        advisories = load_advisories(advisory, config) if advisory else []
+        advisory_warnings: list[str] = []
+        advisories = load_advisories(advisory, config, advisory_warnings) if advisory else []
     except (AdvisoryFormatError, FileNotFoundError, ValueError) as exc:
         _echo(f"エラー: {exc}")
         sys.exit(2)
@@ -258,6 +262,10 @@ def check_inputs(inventory_dir, env_master, config_path, advisory):
         for name in env.files:
             click.echo(f"    {name}")
         for warning in env.warnings:
+            click.echo(f"    注意: {warning}")
+    if advisory:
+        click.echo(f"==== 会社公表リスト（通達 {len(advisories)} 件） ====")
+        for warning in advisory_warnings:
             click.echo(f"    注意: {warning}")
     if advisories:
         click.echo("==== 通達の製品名が回収データのどれに当たるか ====")

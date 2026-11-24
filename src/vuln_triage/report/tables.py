@@ -167,10 +167,11 @@ def coverage_table(envs: list[EnvInventory], today: date, config: dict[str, Any]
         if env.hotfixes is not None:
             hotfix = f"{len(env.hotfixes)} 件"
         else:
-            hotfix = "回収なし" if env.os_family == "windows" else "対象外"
+            hotfix = "対象外" if env.os_family == "linux" else "回収なし"
         table.append([
             env.name, env.exposure, env.system_name, "登録済み" if env.registered else "未登録",
-            env.os_name or env.os_family, env.os_build, env.collected_at, "\n".join(env.files),
+            env.os_name or env.os_family, env.os_build, env.collected_at,
+            "\n".join(env.files) or ("（回収フォルダなし）" if env.not_collected else "（読めるファイルなし）"),
             str(len(env.components)), coverage, hotfix,
             "\n".join(notes), "\n".join(env.unreadable[:50]), "\n".join(sorted(set(env.out_of_scope_running))[:50]),
         ])
@@ -192,6 +193,7 @@ def overview(advisories: list[Advisory], rows: list[Verdict], new_findings: list
         "overdue": sum(1 for r in affected if "期限超過" in r.note),
         "new_findings": len(new_findings),
         "unregistered": [e.name for e in envs if not e.registered],
+        "not_collected": [e.name for e in envs if e.not_collected],
         "db": {name: str(info.get("updated_at", "")).replace("T", " ").replace("Z", " UTC")[:20]
                for name, info in sorted((db_info or {}).items())},
     }

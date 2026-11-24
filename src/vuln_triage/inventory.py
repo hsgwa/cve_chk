@@ -398,4 +398,14 @@ def load_inventories(inventory_dir: str | Path, env_master: dict[str, dict[str, 
         else:
             env.warnings.append("env_master に未登録のため internal（社内限定）として扱いました")
         envs.append(env)
-    return envs
+    # env_master にあるのに回収フォルダが無い環境も、レポートから消さずに「判定不能」として出す
+    # （回収し忘れたホストに気づけるようにする）
+    found = {env.name for env in envs}
+    for name, info in env_master.items():
+        if name in found:
+            continue
+        env = EnvInventory(name=name, exposure=info["exposure"], system_name=info["system_name"], registered=True)
+        env.not_collected = True
+        env.warnings.append(f"env_master に登録済みですが、回収フォルダ（{root / name}）がありません")
+        envs.append(env)
+    return sorted(envs, key=lambda e: e.name)

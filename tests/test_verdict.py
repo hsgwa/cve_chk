@@ -238,3 +238,29 @@ def test_rule_uses_ecosystem_version_order(config):
                purl="pkg:maven/org.apache.logging.log4j/log4j-core@2.0-beta9")
     advisory = make_advisory(product_name="log4j-core", affected_version=">=2.0-beta9,<2.15.0")
     assert one(config, advisory, make_env(components=[jar]))[0].status == AFFECTED
+
+
+def test_not_collected_env_is_unknown_for_every_kind_of_advisory(config):
+    from vuln_triage.models import EnvInventory
+    from vuln_triage.verdict import CAT_NOT_COLLECTED
+
+    env = EnvInventory(name="forgotten", registered=True)
+    env.not_collected = True
+    msrc = FakeMsrc({"CVE-2024-21338": {"found": True, "cvss": 7.8, "fixes": [
+        {"product": "Windows Server 2019", "kb": "KB5034768", "fixed_build": "10.0.17763.5458"}]}})
+    for advisory in (make_advisory(cve_id="CVE-2024-21338"), make_advisory(product_name="KB5034441", affected_version="missing"),
+                     make_advisory(product_name="nginx", affected_version="<1.25"),
+                     make_advisory(cve_id="CVE-2021-44228", product_name="log4j-core")):
+        rows = one(config, advisory, env, msrc=msrc)
+        assert [(r.status, r.category) for r in rows] == [(UNKNOWN, CAT_NOT_COLLECTED)]
+        assert "回収漏れ" in rows[0].note
+
+
+def test_unknown_os_is_not_treated_as_non_windows(config):
+    """OS を判別できない環境を「Windows 以外＝対象外」にしない（KB と Windows OS の CVE）。"""
+    unknown = make_env(os_family="unknown", components=[comp("x", "1")])
+    assert one(config, make_advisory(product_name="KB5034441", affected_version="missing"), unknown)[0].status == UNKNOWN
+    msrc = FakeMsrc({"CVE-2024-21338": {"found": True, "cvss": 7.8, "fixes": [
+        {"product": "Windows Server 2019", "kb": "KB5034768", "fixed_build": "10.0.17763.5458"}]}})
+    row = one(config, make_advisory(cve_id="CVE-2024-21338"), unknown, msrc=msrc)[0]
+    assert (row.status, row.category) == (UNKNOWN, CAT_MSRC)

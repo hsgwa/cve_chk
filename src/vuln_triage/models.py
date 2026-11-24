@@ -91,6 +91,7 @@ class EnvInventory:
     incomplete: bool = False
     missing_db: dict[str, int] = field(default_factory=dict)   # データベースが無く判定できなかったエコシステムと件数
     full_collection: bool = False         # SBOM か収集スクリプトの inventory.json があるか
+    not_collected: bool = False           # env_master に登録済みだが回収フォルダが無い
 
     @property
     def has_inventory(self) -> bool:

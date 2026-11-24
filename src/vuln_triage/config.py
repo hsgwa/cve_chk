@@ -34,7 +34,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "advisory_input": {
         "sheet": "",
         "header_row": 1,
-        "fill_merged": False,
+        "fill_merged": True,
         "columns": {
             "advisory_id": ["advisory_id", "通達番号", "通達ID", "社内通達ID", "管理番号", "No", "No."],
             "cve_id": ["cve_id", "CVE番号", "CVE", "CVE-ID", "CVE_ID"],

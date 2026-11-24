@@ -62,7 +62,7 @@ msrc:
 advisory_input:
   sheet: ""           # 空なら先頭のシート
   header_row: 1       # 見出しのある行
-  fill_merged: false  # true にすると結合セルの値を各行に引き継ぐ
+  fill_merged: true   # 結合セルの値を各行に引き継ぐ（false にすると結合の 2 行目以降は空。警告を出す）
   columns:            # ツール内の項目名: 会社の見出し（候補を複数書ける）
     advisory_id:      ["通達番号", "通達ID", "管理番号", "advisory_id"]
     cve_id:           ["CVE番号", "CVE", "cve_id"]
