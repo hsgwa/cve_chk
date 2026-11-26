@@ -33,7 +33,7 @@ EXCLUDED = [
     (r"^Red Hat:enterprise_linux:2\.1::", "RHEL 2.1（2009 年にサポート終了）"),
     (r"^Red Hat:(?!enterprise_linux:)[a-z0-9_.-]+:",
      "RHEL の追加製品（OpenShift、JBoss、Satellite など。別契約のリポジトリ）。RHEL を対象にする場合、"
-     "これらの製品のパッケージは見落とす（対象外として README に記載）"),
+     "これらの製品のパッケージは見落とす（対象外として docs/ROLLOUT.md に記載）"),
     (r"^Red Hat:enterprise_linux:\d+::(realtime|nfv|sap|sap_hana|highavailability|resilientstorage)$",
      "通常の情報（問い合わせには含まれる。リアルタイムカーネルなど特定用途のパッケージ名でだけ当たる）"),
     (r"^(GitHub Actions|SwiftURL|Hackage|GHC|CRAN|Julia|opam|Bitnami|OSS-Fuzz|Linux|GIT|UVI|GSD|VSCode|Root|"

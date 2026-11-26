@@ -1,6 +1,6 @@
 # vuln-triage の仕組み
 
-この文書は、現在のコードがどう動くかを説明します。使い方は [README](../README.md)、設計の経緯は [PLAN.md](PLAN.md)、不具合の記録は [DEFECTS.md](DEFECTS.md)、他ツールとの比較は [COMPARISON.md](COMPARISON.md) にあります。
+この文書は、現在のコードがどう動くかを説明します。概要は [README](../README.md)、使い方は [USAGE.md](USAGE.md)、設計の経緯は [PLAN.md](PLAN.md)、不具合の記録は [DEFECTS.md](DEFECTS.md)、他ツールとの比較は [COMPARISON.md](COMPARISON.md) にあります。
 
 ## 1. 全体の流れ
 

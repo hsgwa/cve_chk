@@ -17,7 +17,7 @@ register_daily_task.ps1 - 脆弱性データの毎日の更新を、Windows の�
   powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -InventoryDir D:\vuln\inventory -NoPassword
 
   # 毎日の自動実行（脆弱性データの更新 → 照合 → レポート）を登録する。作業フォルダの構成は daily_run.ps1 を参照
-  powershell -ExecutionPolicy Bypass -File scriptsegister_daily_task.ps1 -Run -BaseDir D:uln -NoPassword
+  powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Run -BaseDir D:\vuln -NoPassword
 
   # 登録を消す
   powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Unregister

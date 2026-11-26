@@ -118,7 +118,7 @@
 | 環境 | 回収の方法 | わざと入れた古い部品 |
 |---|---|---|
 | Windows 11（管理 PC と同じ実機、管理者でない） | `collect_win.ps1` | log4j-core 2.14.1 の jar |
-| Ubuntu 24.04（GitHub Actions の実機） | `collect_linux.sh` と、syft だけ（README の手順） | log4j-core 2.14.1、requests 2.25.0、urllib3 1.26.4 |
+| Ubuntu 24.04（GitHub Actions の実機） | `collect_linux.sh` と、syft だけ（[USAGE.md](USAGE.md) の手順） | log4j-core 2.14.1、requests 2.25.0、urllib3 1.26.4 |
 | Amazon Linux 2 / 2023（GitHub Actions 上のコンテナ） | `collect_linux.sh` | log4j-core 2.14.1、リポジトリで最も古い sudo（AL2 は 1.8.19p2-11） |
 
 脆弱性データは `db-update` で実際に取得しました（差分更新も実データで動作）。Windows OS の判定は MSRC に実際に接続しました。
