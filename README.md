@@ -324,3 +324,23 @@ python examples/make_advisory_list.py     # サンプルの会社公表リスト
 `examples/vulndb/` は、本物の OSV.dev / Amazon Linux のデータから、サンプルのパッケージに関係する記録だけを抜き出したものです（`db-update --import` で作成）。
 
 GitHub Actions の CI（`.github/workflows/ci.yml`）が、push のたびに単体テストと、Windows Server・Amazon Linux 2023・Ubuntu 24.04 での回収から照合までの試験を行います。変更履歴は [CHANGELOG.md](CHANGELOG.md)、不具合の記録は [docs/DEFECTS.md](docs/DEFECTS.md) にあります。
+
+## 9. ライセンス
+
+このツールのコード・スクリプト・文書は [MIT No Attribution（MIT-0）](LICENSE) です。著作権表示を残す義務も無く、改変・再配布・商用利用を含めて自由に使えます（無保証）。
+
+依存ライブラリ（pip で別に入るもの。このリポジトリには含めていません）はすべて、同じく自由に使えるライセンスです。
+
+| ライブラリ | ライセンス | 用途 |
+|---|---|---|
+| PyYAML | MIT | 設定ファイルの読み込み |
+| packaging | Apache-2.0 または BSD-2-Clause | 版の比較 |
+| click | BSD-3-Clause | コマンドライン |
+| openpyxl（と et-xmlfile） | MIT | Excel の読み書き |
+| pytest（開発時のみ） | MIT | テスト |
+
+外部のツールとデータ（このツールのライセンスの対象外です）:
+
+- **syft**（Apache-2.0）、**Trivy**（Apache-2.0、任意）は利用者が別に入手して使います。このリポジトリには含めていません。
+- `db-update` で取得する脆弱性データ（OSV.dev、Amazon Linux の公式情報）と、Windows OS の判定で取得する Microsoft の公開データは、それぞれの提供元の条件に従います。OSV.dev のデータは、提供元（GitHub Advisory Database、Ubuntu、Debian など）ごとにライセンスが異なります。
+- `examples/vulndb/`（OSV.dev と Amazon Linux のデータの一部）、`examples/cache/msrc/`（Microsoft の公開データの一部）、`examples/trivy_fixtures/`（Trivy の出力）は、試験用にそれらのデータから抜き出したもので、元のデータの条件に従います。

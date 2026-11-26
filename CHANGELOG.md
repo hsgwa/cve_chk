@@ -14,6 +14,7 @@
 - 会社公表リストの読み落とし（他のシート、結合セル、読めない CVE 番号）の警告。
 - CI（GitHub Actions）。Windows と Linux での単体テスト、Windows Server と Amazon Linux / Ubuntu での回収から照合までの試験、タスクの登録の試験。
 - [docs/DESIGN.md](docs/DESIGN.md)（仕組み）、[docs/OPERATIONS.md](docs/OPERATIONS.md)（運用の手引き）。
+- ライセンス: MIT No Attribution（MIT-0）。
 
 ### 修正
 - [docs/DEFECTS.md](docs/DEFECTS.md) の #32〜#44。主なもの:
