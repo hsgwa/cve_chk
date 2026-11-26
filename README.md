@@ -14,7 +14,15 @@
 
 管理 PC でも **exe は不要**です（Python と標準ライブラリ、pip で入る依存だけで動きます）。
 
-仕組み（データの取得、照合、判定の流れ）は [docs/DESIGN.md](docs/DESIGN.md) にあります。設計の経緯は [docs/PLAN.md](docs/PLAN.md) にあります。
+| 文書 | 内容 |
+|---|---|
+| この README | セットアップ、回収、入力、実行、出力の読み方 |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | **本番で使う前に読む。** 本番前の確認、対象サーバーへの影響、回収物の扱い、対応の流れ、困ったとき |
+| [docs/DESIGN.md](docs/DESIGN.md) | 仕組み（データの取得、照合、判定の流れ） |
+| [docs/COMPARISON.md](docs/COMPARISON.md) | 他のツール（Trivy、Grype、OSV-Scanner）との比較と、実機での確認の結果 |
+| [docs/DEFECTS.md](docs/DEFECTS.md) | 見つけて直した不具合と、同じ種類の不具合を防ぐ検査 |
+| [CHANGELOG.md](CHANGELOG.md) | 変更履歴 |
+| [docs/PLAN.md](docs/PLAN.md) | 最初の設計の記録（経緯。本文は実装前の計画のまま） |
 
 ## 1. セットアップ（管理 PC）
 
@@ -291,14 +299,17 @@ python -m vuln_triage run          --inventory-dir inventory --env-master env_ma
 
 ## 6. この結果の限界
 
-「未使用」「影響なし」は**回収できた範囲での結果**です。詳細は [docs/PLAN.md](docs/PLAN.md) の「限界」を参照してください。
+「未使用」「影響なし」は**回収できた範囲での結果**です。取りこぼしを減らす確認の手順は [docs/OPERATIONS.md](docs/OPERATIONS.md) の 1 章にあります。
 
 - **対象外**: コンテナの中身、Lambda の実行環境そのもの、AWS マネージドサービス側、Windows の Go / Rust 製 exe の内部依存。
 - **取りこぼしうるもの**: 権限不足で読めなかったフォルダ、走査対象に入れなかったフォルダ、ネットワークドライブ上のソフト、表に登録していない商用ソフト。「収集状況」シートで確認してください。
 - **判定の限界**: 脆弱性データ（OSV.dev、Amazon Linux の公式情報）に無い脆弱性は検出されません。「影響あり」は版の一致であり、実際に攻撃可能かは判定しません。製品名の表記が違うと「未使用」になります。
 - **対象外の系統**: RHEL の追加製品（OpenShift、JBoss など）、RHEL の延長サポート（EUS）、Ubuntu の FIPS / Realtime 版の修正情報は使いません（[docs/DEFECTS.md](docs/DEFECTS.md) の 4 章）。
 - **不具合の記録と類似不良の確認**: [docs/DEFECTS.md](docs/DEFECTS.md)。実データの監査は `python tools/audit_vulndb.py --db-dir vulndb --inventory-dir inventory`。
-- **照合の精度**: Trivy・Grype・OSV-Scanner と同じ SBOM で結果を比べました（[docs/COMPARISON.md](docs/COMPARISON.md)）。Amazon Linux 2 / 2023 の OS パッケージは Grype と完全に一致し、Java・Python・npm・Go・Rust のライブラリは他ツールの共通部分をすべて含み、Ubuntu の OS パッケージも Grype とほぼ一致しました。他の3ツールがそろって検出していて本ツールだけが見落としたものは 0 件です。Ruby は Trivy 独自のデータ源の分だけ少なくなります。実行ファイル自体（ruby・python・node のバイナリなど）の照合は行いません。
+- **照合の精度**（[docs/COMPARISON.md](docs/COMPARISON.md)）:
+  - 検証用の SBOM で Trivy・Grype・OSV-Scanner と比べ、他の 3 ツールがそろって検出していて本ツールだけが見落としたものは 0 件でした。Ruby は Trivy 独自のデータ源の分だけ少なくなります。
+  - 実機（Ubuntu 24.04、Amazon Linux 2 / 2023）の SBOM で、現在の Grype と比べました。Ubuntu は 27,532 件が一致し、本ツールだけの検出は Go の版の表記の違いだけでした。Grype だけの検出は、実行ファイル自体の照合（カーネル、node、python）、修正版がまだ無い CVE、Grype 側の当てはめすぎ（Amazon Linux 2 の extras）で、理由を 1 件ずつ確かめています。
+  - 実行ファイル自体（ruby・python・node のバイナリ、カーネルのイメージなど）の照合は行いません。
 - **Amazon Linux**: Amazon Linux 2 は core と extras の全トピック（kernel-5.4 / 5.10 / 5.15、nginx1、php8.x など 73 件）、Amazon Linux 2023 は core の情報を取得します。x86_64 の情報で、arm64 にも同じ版番号のため流用します。EMR 独自のパッケージは含みません。公式情報に CVSS が無いため、Debian のデータの同じ CVE から点数を引いています（見つからなければ「CVSS 不明」で Rank-C、備考に Amazon の深刻度を表示）。
 - **実機での確認**（[docs/COMPARISON.md](docs/COMPARISON.md) の「実機での確認」）: Windows 11（管理者でない実行、ARM64）での回収、Ubuntu 24.04 と Amazon Linux 2 / 2023 での回収（スクリプトと syft だけの両方）、`db-update` の全件取得と差分更新、MSRC に接続した Windows OS の判定を通して確かめました。Windows Server 2025（管理者）での回収と照合は CI で毎回確かめています（`.github/workflows/ci.yml`）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
 - **`--resolve-hashes`（Maven Central への照会）は、実際に接続した確認ができていません。**
