@@ -335,3 +335,5 @@ python examples/make_advisory_list.py     # サンプルの会社公表リスト
 `examples/vulndb/` は、本物の OSV.dev / Amazon Linux のデータから、サンプルのパッケージに関係する記録だけを抜き出したものです（`db-update --import` で作成）。
 
 GitHub Actions の CI（`.github/workflows/ci.yml`）が、push のたびに単体テストと、Windows Server・Amazon Linux 2023・Ubuntu 24.04 での回収から照合までの試験を行います。変更履歴は [CHANGELOG.md](../CHANGELOG.md)、不具合の記録は [DEFECTS.md](DEFECTS.md) にあります。
+
+文書の図は `docs/images/*.drawio.png` です。図のデータを埋め込んだ PNG なので、draw.io（デスクトップ版、または https://app.diagrams.net ）でそのまま開いて編集し、同じ形式（PNG、「図のコピーを含める」をオン）で保存し直せます。

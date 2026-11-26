@@ -4,22 +4,7 @@
 
 ## 1. 全体の流れ
 
-```
-[オフライン Linux]   collectors/collect_linux.sh（syft を呼ぶ）
-                       → out/<ホスト名>/cdx_syft.json, os_info.json, collect.log
-[オフライン Windows] collectors/collect_win.ps1（PowerShell 5.1 の標準機能だけ）
-                       → out/<ホスト名>/inventory.json, collect.log
-          │  フォルダごと回収し、管理 PC の <inventory-dir>/<環境名>/ に置く
-          ▼
-[管理 PC]
-  vuln-triage db-update   脆弱性データを取得し、vulndb/ に保存して索引を作る（照合の前に。2 回目以降は差分）
-  vuln-triage run         1. 回収ファイルを読む（inventory.py）
-                          2. PURL を付ける（sbom_builder.assign_purls）
-                          3. 手元の脆弱性データで CVE を照合する（vulndb/scanner.py）
-                          4. Windows OS の CVE を MSRC のデータで判定する（msrc.py）
-                          5. 通達 × 環境 ごとに判定する（verdict.py）
-                          6. Excel / CSV / サマリを出す（report/）
-```
+![全体の流れ: 対象マシンの回収スクリプトが出した回収物を管理 PC に置き、vuln-triage db-update が脆弱性データを取得して索引を作り、vuln-triage run が 6 段階（読み込み、PURL 付け、照合、Windows OS の判定、判定、出力）でレポートを出す](images/pipeline.drawio.png)
 
 管理 PC で外部に接続するのは次の 3 つだけです。`run` が使う脆弱性データは `db-update` で取得済みのものだけです。
 
