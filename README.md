@@ -26,7 +26,7 @@
 
 ## 1. セットアップ（管理 PC）
 
-Python 3.10 以降が必要です。
+Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.3.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
 
 ```
 pip install -e .
