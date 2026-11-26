@@ -151,7 +151,7 @@ class VulnDB:
         self.log = log
         self._conn: sqlite3.Connection | None = None
         self._zips: dict[str, zipfile.ZipFile] = {}
-        # 読んだ記録の一時保管（同じソースパッケージの照合で使い回す）。メモリを使いすぎないよう件数を絞る
+        # 読んだ記録の一時保管（同じソースパッケージの照合で使い回す）。メモリを使いすぎないよう件数を絞る（Ubuntu のカーネルの記録は 1 件 0.5 MB 前後）
         self._records: OrderedDict[tuple[str, str], dict | None] = OrderedDict()
         self._cache_size = 256
 

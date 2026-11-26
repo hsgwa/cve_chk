@@ -1,6 +1,7 @@
 """手元の脆弱性データベースで、回収したコンポーネントを照合する。"""
 from __future__ import annotations
 
+import re
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -119,6 +120,23 @@ def _first_fixed(affected: dict) -> str:
     return ""
 
 
+_ESM_SUFFIX = re.compile(r"[~+]esm\d*$")
+
+
+def _same_as_esm_base(ecosystem: str, version: str, affected: dict) -> bool:
+    """修正版から esm の印（+esm1、~esm2）を外した版が、入っている版と同じか。"""
+    for range_ in affected.get("ranges") or []:
+        for event in range_.get("events") or []:
+            fixed = str(event.get("fixed") or "")
+            if fixed and _ESM_SUFFIX.search(fixed):
+                try:
+                    if compare(ecosystem, version, _ESM_SUFFIX.sub("", fixed)) == 0:
+                        return True
+                except (UncomparableVersion, ValueError):
+                    continue
+    return False
+
+
 def _is_informational(record: dict, affected: dict | None = None) -> bool:
     """脆弱性ではない参考情報（RustSec の「保守終了」など）か。Trivy と同じく対象外にする。
 
@@ -148,6 +166,7 @@ def scan_with_vulndb(
     available = db.sources()
 
     findings: list[Finding] = []
+    memo: dict = {}                  # 同じ名前・系統・版の評価結果（環境をまたいで使い回す）
     for env in envs:
         missing: Counter = Counter()
         unsupported: Counter = Counter()
@@ -164,7 +183,7 @@ def scan_with_vulndb(
                 missing[query.source] += 1
                 continue
             component.checked = True
-            findings.extend(_scan_component(env, component, query, db, priority))
+            findings.extend(_scan_component(env, component, query, db, priority, memo))
         # Amazon Linux 2 は extras（kernel-5.10 など）の情報が無いと、そのパッケージの脆弱性を見落とす
         al2 = sum(1 for c in env.components if c.checked and _source_of(c, env) == f"{AMAZON_PREFIX}2")
         extras_expected = settings.get("amazon_extras", "all") not in ([], "", "none", False)
@@ -188,21 +207,28 @@ def scan_with_vulndb(
     return list(unique.values())
 
 
-def _scan_component(env: EnvInventory, component, query: Query, db: VulnDB, priority: list[str]) -> list[Finding]:
-    results = []
-    for ecosystem, record in db.lookup(query.ecosystems, query.names):
-        hit = None
-        fixed = ""
+def _evaluate_name(db: VulnDB, ecosystems: tuple[str, ...], name: str, version: str, memo: dict) -> list[dict]:
+    """1 つのパッケージ名について、当たった記録の一覧を返す。結果は memo に残して使い回す。
+
+    Ubuntu のカーネルは 1 つのソースパッケージ（linux-azure-7.0 など）に数千件・1 件 0.5 MB 前後の記録があり、
+    同じソースのバイナリパッケージ（linux-modules-*、linux-tools-* など）が 10 個前後ある。パッケージごとに
+    読み直すと 1 環境で数十分かかった（実機の Ubuntu 24.04 で確認）ため、名前・系統・版が同じなら評価を使い回す。
+    """
+    key = (ecosystems, name, version)
+    if key in memo:
+        return memo[key]
+    hits = []
+    for _, record in db.lookup(ecosystems, (name,)):
         if _is_informational(record):
             continue
         entries = []
         for affected in record.get("affected") or []:
             package = affected.get("package") or {}
             package_ecosystem = str(package.get("ecosystem") or "")
-            if not any(_matches_ecosystem(p, package_ecosystem) for p in query.ecosystems):
+            if not any(_matches_ecosystem(p, package_ecosystem) for p in ecosystems):
                 continue
             # 1つの記録に複数のパッケージが載っていることがあるので、名前も確かめる
-            if normalize_package(package_ecosystem, str(package.get("name") or "")) not in query.names:
+            if normalize_package(package_ecosystem, str(package.get("name") or "")) != name:
                 continue
             if _is_informational(record, affected):
                 continue
@@ -210,12 +236,17 @@ def _scan_component(env: EnvInventory, component, query: Query, db: VulnDB, prio
         # Ubuntu: 通常の情報があればそれを使い、Pro（ESM）の情報しか無いときだけ Pro の情報で判定する
         standard = [e for e in entries if ":Pro:" not in e[0]]
         pro_only = bool(entries) and not standard
+        hit, fixed = None, ""
         for package_ecosystem, affected in (standard or entries):
-            if pro_only and "esm" not in query.version:
-                # Pro の修正は通常の配布物に入らないので、Pro の版を入れていなければ版番号によらず未修正
+            if pro_only and "esm" not in version and _same_as_esm_base(package_ecosystem, version, affected):
+                # Pro の修正版は「通常の版 + esm」（7:6.1.1-3ubuntu5+esm1、1.2-3~esm1 など）。esm を外した版と
+                # 同じ版を入れていれば、Pro の修正を含まないので未修正。~esm は番号の比較で通常の版より小さくなるため、
+                # 番号の比較だけでは修正済みに見える
                 hit, fixed = True, fixed or _first_fixed(affected)
                 break
-            result, result_fixed = evaluate(package_ecosystem, query.version, affected)
+            # Pro の修正版より新しい通常の版（カーネルの 6.8.0-149 に対する Livepatch の修正 6.8.0-59 など）は、
+            # 版番号で判定する（以前は版番号によらず未修正としたため、Livepatch の告知で大量に誤検出した）
+            result, result_fixed = evaluate(package_ecosystem, version, affected)
             if result:
                 hit, fixed = True, fixed or result_fixed
                 break
@@ -223,20 +254,39 @@ def _scan_component(env: EnvInventory, component, query: Query, db: VulnDB, prio
                 hit = "uncomparable"
         if not hit:
             continue
-        ids = record_ids(record)
+        hits.append({
+            "record_id": str(record.get("id") or ""), "ids": record_ids(record), "summary": str(record.get("summary") or ""),
+            "severity": str((record.get("database_specific") or {}).get("severity") or ""),
+            "hit": hit, "fixed": fixed, "pro_only": pro_only,
+        })
+    memo[key] = hits
+    return hits
+
+
+def _scan_component(env: EnvInventory, component, query: Query, db: VulnDB, priority: list[str],
+                    memo: dict | None = None) -> list[Finding]:
+    memo = {} if memo is None else memo
+    # パッケージ名（ソース名とバイナリ名）ごとの結果を、記録単位でまとめる
+    merged: dict[str, dict] = {}
+    for name in query.names:
+        for item in _evaluate_name(db, query.ecosystems, name, query.version, memo):
+            current = merged.get(item["record_id"])
+            if current is None or (current["hit"] != True and item["hit"] == True):
+                merged[item["record_id"]] = item
+    results = []
+    for item in merged.values():
+        ids = item["ids"]
         cves = [i.upper() for i in ids if i.upper().startswith("CVE-")]
-        scores = db.scores(ids)
-        cvss = pick_score(scores, priority)
-        vendor = str((record.get("database_specific") or {}).get("severity") or "")
-        title = str(record.get("summary") or "")
-        if record.get("id") and not title.startswith(str(record["id"])):
-            title = f"{record['id']}: {title}" if title else str(record["id"])
-        if pro_only:
+        cvss = pick_score(db.scores(ids), priority)
+        title = item["summary"]
+        if item["record_id"] and not title.startswith(item["record_id"]):
+            title = f"{item['record_id']}: {title}" if title else item["record_id"]
+        if item["pro_only"]:
             title = f"修正版は Ubuntu Pro（ESM）でのみ提供 / {title}"
-        for vuln_id in cves or [str(record.get("id"))]:
+        for vuln_id in cves or [item["record_id"]]:
             results.append(Finding(
                 env=env.name, cve_id=vuln_id, pkg_name=query.display, installed_version=query.version,
-                fixed_version=fixed, path=component.path, cvss=cvss, severity=vendor, title=title,
-                sbom=query.source, ids=tuple(ids), uncomparable=hit == "uncomparable",
+                fixed_version=item["fixed"], path=component.path, cvss=cvss, severity=item["severity"], title=title,
+                sbom=query.source, ids=tuple(ids), uncomparable=item["hit"] == "uncomparable",
             ))
     return results

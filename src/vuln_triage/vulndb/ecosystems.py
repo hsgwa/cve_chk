@@ -17,7 +17,9 @@ LIBRARY_ECOSYSTEMS = {
 # linux-modules-* / linux-tools-common は Grype が検出するので残す。Amazon Linux の kernel-headers 等は
 # Amazon の告知に修正対象として明記され、Trivy・Grype とも検出するので残す（docs/DEFECTS.md）。
 KERNEL_HEADER_PACKAGES = {"linux-libc-dev"}
-KERNEL_HEADER_PATTERN = re.compile(r"^linux-headers-")
+# linux-headers-6.8.0-1014-aws に加え、HWE などの系統名つきの linux-aws-7.0-headers-7.0.0-1014 も含む
+# （実機の Ubuntu 24.04 で確認。系統名つきを見落として、カーネルの脆弱性 4,000 件余りを誤検出した）
+KERNEL_HEADER_PATTERN = re.compile(r"^linux-(?:[a-z0-9.]+-)*headers-")
 
 
 def is_kernel_header_package(ptype: str, name: str) -> bool:
@@ -68,6 +70,16 @@ def _source_name(value: str) -> str:
     return match.group(1) if match else value
 
 
+def _source_version(value: str) -> str:
+    """rpm の source rpm 名（`lvm2-2.02.187-6.amzn2.5.2.src.rpm`）から版-リリース（`2.02.187-6.amzn2.5.2`）を取る。"""
+    match = re.match(r"^.+-([^-]+-[^-]+)\.src\.rpm$", value)
+    return match.group(1) if match else ""
+
+
+def _strip_epoch(version: str) -> str:
+    return version.split(":", 1)[1] if re.match(r"^\d+:", version) else version
+
+
 def build_query(component: Component, env: EnvInventory) -> Query | None:
     parsed = parse_purl(component.purl)
     ptype, name, version, qualifiers = parsed.type, parsed.name, parsed.version, parsed.qualifiers
@@ -93,7 +105,11 @@ def build_query(component: Component, env: EnvInventory) -> Query | None:
         upstream = qualifiers.get("upstream") or qualifiers.get("source", "")
         if upstream:
             source = _source_name(upstream)
-            if source and source != name:
+            # rpm: サブパッケージが独自の版を持つことがある（lvm2 2.02.187 の device-mapper は 1.02.170）。
+            # ソースの版がバイナリと違うと、ソース名で引いた修正版と比べて誤検出になる（実機の Amazon Linux 2 で確認）。
+            # その場合はソース名を使わない（Amazon / RHEL の告知はバイナリパッケージ名でも載っている）
+            same_build = ptype != "rpm" or _source_version(upstream) in ("", _strip_epoch(version))
+            if source and source != name and same_build:
                 names.insert(0, source) if ptype == "deb" else names.append(source)
         if ptype == "rpm" and qualifiers.get("epoch") and ":" not in version and qualifiers["epoch"] != "0":
             version = f"{qualifiers['epoch']}:{version}"

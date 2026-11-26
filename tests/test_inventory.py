@@ -151,3 +151,48 @@ def test_env_master_without_folder_is_reported(tmp_path):
     assert missing.not_collected and missing.registered and missing.exposure == "internet"
     assert any("回収フォルダ" in w for w in missing.warnings)
     assert not envs["web"].not_collected
+
+
+def test_plain_syft_sbom_without_os_info(examples, tmp_path, config):
+    """collect_linux.sh を使わず、素の syft の出力（cdx_syft.json）だけを置いた環境も同じように照合できる。"""
+    from vuln_triage.vulndb.scanner import scan_with_vulndb
+    from vuln_triage.vulndb.store import VulnDB
+
+    data = json.loads((examples / "inventory" / "web-ec2" / "cdx_syft.json").read_text(encoding="utf-8"))
+    data["metadata"]["timestamp"] = "2026-11-20T01:02:03Z"
+    write(tmp_path / "plain" / "sbom.json", data)
+    plain = load_env_dir(tmp_path / "plain")
+    full = load_env_dir(examples / "inventory" / "web-ec2")
+    assert (plain.os_family, plain.os_id, plain.os_version_id) == ("linux", "ubuntu", "22.04")
+    assert plain.full_collection and not plain.incomplete
+    assert plain.collected_at == "2026-11-20T01:02:03Z"
+
+    db = VulnDB(examples / "vulndb", config)
+    keys = lambda env: {(f.cve_id, f.pkg_name, f.installed_version) for f in scan_with_vulndb([env], db, config)}
+    try:
+        assert keys(plain) == keys(full) and keys(plain)
+    finally:
+        db.close()
+
+
+def test_elf_package_notes_duplicating_rpm_db_are_not_scanned(tmp_path):
+    """syft が実行ファイルの ELF のパッケージ情報から作る rpm（エポック無し）は、rpm のデータベースに同じものが
+    あれば照合しない（Amazon Linux 2023 の実機で openssl の誤検出 92 件）。"""
+    note = {"name": "syft:package:foundBy", "value": "elf-binary-package-cataloger"}
+    db = {"name": "syft:package:foundBy", "value": "rpm-db-cataloger"}
+    write(tmp_path / "e" / "sbom.json", {"bomFormat": "CycloneDX", "specVersion": "1.6", "components": [
+        {"type": "library", "name": "openssl-libs", "version": "1:3.5.8-1.amzn2023.0.4", "properties": [db],
+         "purl": "pkg:rpm/amzn/openssl-libs@3.5.8-1.amzn2023.0.4?distro=amzn-2023&epoch=1"
+                 "&upstream=openssl-3.5.8-1.amzn2023.0.4.src.rpm"},
+        {"type": "library", "name": "tar", "version": "2:1.34-1.amzn2023.0.4", "properties": [db],
+         "purl": "pkg:rpm/amzn/tar@1.34-1.amzn2023.0.4?distro=amzn-2023&epoch=2"},
+        {"type": "library", "name": "openssl", "version": "3.5.8-1.amzn2023.0.4", "properties": [note],
+         "purl": "pkg:rpm/amazon_linux/openssl@3.5.8-1.amzn2023.0.4?distro=amazon_linux-2023"},
+        {"type": "library", "name": "tar", "version": "1.34-1.amzn2023.0.4", "properties": [note],
+         "purl": "pkg:rpm/amazon_linux/tar@1.34-1.amzn2023.0.4?distro=amazon_linux-2023"},
+        {"type": "library", "name": "mytool", "version": "1.0-1.amzn2023", "properties": [note],
+         "purl": "pkg:rpm/amazon_linux/mytool@1.0-1.amzn2023?distro=amazon_linux-2023"},
+    ]})
+    env = load_env_dir(tmp_path / "e")
+    scannable = {(c.name, c.found_by.split("-")[0]) for c in env.components if c.scannable}
+    assert scannable == {("openssl-libs", "rpm"), ("tar", "rpm"), ("mytool", "elf")}   # rpm DB に無いものは残す

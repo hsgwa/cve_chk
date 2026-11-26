@@ -523,10 +523,14 @@ def test_ubuntu_pro_only_fix(tmp_path, config):
     findings = scan_with_vulndb([make_env(components=[deb])], db, config)
     assert [(f.cve_id, f.fixed_version) for f in findings] == [("CVE-2023-49501", "7:6.1.1-3ubuntu5+esm1")]
     assert "Ubuntu Pro" in findings[0].title
-    # 通常の配布物の版は、Pro の修正版より番号が新しくても Pro の修正を含まない → 未修正
+    # Pro の修正版より新しい通常の版は、版番号で判定する（Livepatch の告知 LSN と同じ。実機の Ubuntu 24.04 で
+    # カーネル 6.8.0-149 に修正 6.8.0-59 の LSN を当てはめ、1 パッケージ 250 件余りを誤検出した）
     newer = Component(name="ffmpeg", version="7:6.1.1-3ubuntu6", scannable=True,
                       purl="pkg:deb/ubuntu/ffmpeg@7:6.1.1-3ubuntu6?arch=amd64&distro=ubuntu-24.04")
-    assert [f.cve_id for f in scan_with_vulndb([make_env(components=[newer])], db, config)] == ["CVE-2023-49501"]
+    assert scan_with_vulndb([make_env(components=[newer])], db, config) == []
+    older = Component(name="ffmpeg", version="7:6.1.1-3ubuntu4", scannable=True,
+                      purl="pkg:deb/ubuntu/ffmpeg@7:6.1.1-3ubuntu4?arch=amd64&distro=ubuntu-24.04")
+    assert "CVE-2023-49501" in [f.cve_id for f in scan_with_vulndb([make_env(components=[older])], db, config)]
     # Pro の版（+esm）を入れていれば、版番号で判定する
     esm = Component(name="ffmpeg", version="7:6.1.1-3ubuntu5+esm1", scannable=True,
                     purl="pkg:deb/ubuntu/ffmpeg@7:6.1.1-3ubuntu5+esm1?arch=amd64&distro=ubuntu-24.04")
@@ -664,3 +668,37 @@ def test_informational_flag_is_per_package(tmp_path, config):
     b = Component(name="b", version="1.0.0", purl="pkg:cargo/b@1.0.0", scannable=True)
     findings = scan_with_vulndb([make_env(components=[a, b])], db, config)
     assert [f.pkg_name for f in findings] == ["b"]      # a は参考情報、b は脆弱性として残る
+
+
+def test_kernel_header_packages_with_flavor_are_not_matched():
+    """系統名つきのヘッダ（linux-aws-7.0-headers-*）も照合しない。モジュール・ツール・本体は照合する。"""
+    def deb(name):
+        return query(f"pkg:deb/ubuntu/{name}@7.0.0-1014.14~24.04.1?distro=ubuntu-24.04&upstream=linux-aws-7.0")
+    for name in ("linux-headers-7.0.0-1014-aws", "linux-aws-7.0-headers-7.0.0-1014", "linux-hwe-6.8-headers-6.8.0-50"):
+        assert deb(name) is None, name
+    for name in ("linux-modules-7.0.0-1014-aws", "linux-tools-7.0.0-1014-aws", "linux-aws", "linux-image-7.0.0-1014-aws"):
+        assert deb(name) is not None, name
+
+
+def test_rpm_subpackage_with_own_version_does_not_use_source_name():
+    """lvm2（2.02.187）の device-mapper（1.02.170）は、ソース名 lvm2 の修正版と比べない（実機の Amazon Linux 2 で誤検出）。"""
+    dm = query("pkg:rpm/amzn/device-mapper@1.02.170-6.amzn2.5.2?arch=x86_64&epoch=7&distro=amzn-2"
+               "&upstream=lvm2-2.02.187-6.amzn2.5.2.src.rpm")
+    assert dm.names == ("device-mapper",) and dm.version == "7:1.02.170-6.amzn2.5.2"
+    libs = query("pkg:rpm/amzn/openssl-libs@1.0.2k-24.amzn2.0.4?arch=x86_64&epoch=1&distro=amzn-2"
+                 "&upstream=openssl-1.0.2k-24.amzn2.0.4.src.rpm")
+    assert libs.names == ("openssl-libs", "openssl")                    # 同じビルドならソース名でも引く
+
+
+def test_ubuntu_pro_only_fix_with_tilde_esm(tmp_path, config):
+    """~esm は番号の比較で通常の版より小さくなる。esm を外した版と同じ版を入れていれば未修正とする。"""
+    record = {"id": "UBUNTU-CVE-2024-1111", "upstream": ["CVE-2024-1111"], "affected": [
+        {"package": {"ecosystem": "Ubuntu:Pro:24.04:LTS", "name": "foo"},
+         "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "1.2-3~esm1"}]}]}]}
+    db = VulnDB(tmp_path / "db")
+    db.import_zip("Ubuntu", osv_zip(tmp_path / "u.zip", [record]))
+    def scan(version):
+        c = Component(name="foo", version=version, scannable=True, purl=f"pkg:deb/ubuntu/foo@{version}?distro=ubuntu-24.04")
+        return [f.cve_id for f in scan_with_vulndb([make_env(components=[c])], db, config)]
+    assert scan("1.2-3") == ["CVE-2024-1111"]
+    assert scan("1.2-4") == []

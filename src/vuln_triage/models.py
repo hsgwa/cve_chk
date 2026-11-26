@@ -44,6 +44,7 @@ class Component:
     scannable: bool = False               # 脆弱性データベースで判定できる形（PURL）を持つか
     sbom_file: str = ""                   # 含まれている CycloneDX のファイル名
     checked: bool = False                 # 脆弱性データベースで実際に判定したか
+    found_by: str = ""                    # SBOM を作ったツールの検出方法（syft:package:foundBy）
 
 
 @dataclass

@@ -178,6 +178,21 @@ def coverage_table(envs: list[EnvInventory], today: date, config: dict[str, Any]
     return table
 
 
+def _db_summary(db_info: dict[str, dict]) -> dict[str, str]:
+    """データごとの更新日時。Amazon Linux 2 の extras（70 以上のトピック）は 1 つにまとめ、最も古い日時を出す。"""
+    def stamp(info: dict) -> str:
+        return str(info.get("updated_at", "")).replace("T", " ").replace("Z", " UTC")[:20]
+
+    result: dict[str, str] = {}
+    extras = sorted(stamp(info) for name, info in db_info.items() if name.startswith("Amazon Linux:2:extras:"))
+    for name, info in sorted(db_info.items()):
+        if not name.startswith("Amazon Linux:2:extras:"):
+            result[name] = stamp(info)
+    if extras:
+        result[f"Amazon Linux:2 extras（{len(extras)} トピック）"] = extras[0]
+    return result
+
+
 def overview(advisories: list[Advisory], rows: list[Verdict], new_findings: list[Verdict],
              envs: list[EnvInventory], config: dict[str, Any], db_info: dict[str, dict] | None = None) -> dict[str, Any]:
     """標準出力とサマリシートに出す集計。"""
@@ -194,6 +209,5 @@ def overview(advisories: list[Advisory], rows: list[Verdict], new_findings: list
         "new_findings": len(new_findings),
         "unregistered": [e.name for e in envs if not e.registered],
         "not_collected": [e.name for e in envs if e.not_collected],
-        "db": {name: str(info.get("updated_at", "")).replace("T", " ").replace("Z", " UTC")[:20]
-               for name, info in sorted((db_info or {}).items())},
+        "db": _db_summary(db_info or {}),
     }

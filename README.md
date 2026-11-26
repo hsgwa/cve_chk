@@ -115,6 +115,31 @@ sudo bash collect_linux.sh
 - 走査範囲や除外は環境変数で変えられます（スクリプト冒頭のコメントを参照）。
 - EMR はクラスタが動いているうちに、マスター 1 台とコア 1 台で実行してください。
 
+#### スクリプトを使わず、syft だけで回収する場合
+
+syft を直接実行して CycloneDX を作り、そのファイルだけを環境フォルダに置いても照合できます。OS（`ubuntu 22.04` など）は SBOM の中から判別し、回収日時は SBOM の作成日時を使います。
+
+```
+tar -xzf syft_<版>_linux_amd64.tar.gz syft
+sudo SYFT_CHECK_FOR_APP_UPDATE=false ./syft scan dir:/ \
+  --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' \
+  --exclude './run/**' --exclude './tmp/**' \
+  --exclude './var/lib/docker/**' --exclude './var/lib/containerd/**' \
+  -o cyclonedx-json=cdx_syft.json
+```
+
+- 古い syft には `scan` が無いので、その場合は `./syft dir:/ ...` と書きます。
+- NFS などネットワーク上の領域は自動では除外されません。`findmnt -t nfs,nfs4,cifs,fuse.s3fs,lustre -o TARGET` で場所を確かめ、`--exclude './<場所>/**'` を足してください。
+- 管理 PC では `inventory/<環境名>/cdx_syft.json` に置きます（ファイル名は `*.json` なら何でもかまいません）。
+
+`collect_linux.sh` を使う場合と比べて、次のものが取れません。
+
+| 取れないもの | 影響 |
+|---|---|
+| 個別製品の版（HULFT / DataMagic など、スクリプト内の表で取るもの） | 通達の製品名で見つからなければ「未使用」になる |
+| EMR のリリースラベル | EMR の版を指定した通達を判定できない |
+| syft の失敗と収集の中断の記録 | 失敗した場合はファイルが無いだけになる。環境マスタに登録しておけば「判定不能（回収漏れ）」として出る |
+
 ### Windows
 
 持ち込むもの: `collectors/collect_win.ps1` だけです（exe は不要）。管理者として開いた PowerShell で実行します。
@@ -135,7 +160,7 @@ powershell -ExecutionPolicy Bypass -File collect_win.ps1 -AllDrives
 
 ### Lambda
 
-実行環境の中ではスクリプトを動かせません。デプロイ用 zip を展開したフォルダに対して Linux 上で `SCAN_ROOT=<展開先> bash collect_linux.sh` を実行するか、Amazon Inspector の SBOM エクスポート（CycloneDX）を環境フォルダに置いてください。
+実行環境の中ではスクリプトを動かせません。デプロイ用 zip を展開したフォルダに対して Linux 上で `SCAN_ROOT=<展開先> bash collect_linux.sh` か `syft scan dir:<展開先> -o cyclonedx-json=cdx_syft.json` を実行するか、Amazon Inspector の SBOM エクスポート（CycloneDX）を環境フォルダに置いてください。
 
 ### 回収後
 
@@ -269,8 +294,8 @@ python -m vuln_triage run          --inventory-dir inventory --env-master env_ma
 - **不具合の記録と類似不良の確認**: [docs/DEFECTS.md](docs/DEFECTS.md)。実データの監査は `python tools/audit_vulndb.py --db-dir vulndb --inventory-dir inventory`。
 - **照合の精度**: Trivy・Grype・OSV-Scanner と同じ SBOM で結果を比べました（[docs/COMPARISON.md](docs/COMPARISON.md)）。Amazon Linux 2 / 2023 の OS パッケージは Grype と完全に一致し、Java・Python・npm・Go・Rust のライブラリは他ツールの共通部分をすべて含み、Ubuntu の OS パッケージも Grype とほぼ一致しました。他の3ツールがそろって検出していて本ツールだけが見落としたものは 0 件です。Ruby は Trivy 独自のデータ源の分だけ少なくなります。実行ファイル自体（ruby・python・node のバイナリなど）の照合は行いません。
 - **Amazon Linux**: Amazon Linux 2 は core と extras の全トピック（kernel-5.4 / 5.10 / 5.15、nginx1、php8.x など 73 件）、Amazon Linux 2023 は core の情報を取得します。x86_64 の情報で、arm64 にも同じ版番号のため流用します。EMR 独自のパッケージは含みません。公式情報に CVSS が無いため、Debian のデータの同じ CVE から点数を引いています（見つからなければ「CVSS 不明」で Rank-C、備考に Amazon の深刻度を表示）。
-- **Windows 用スクリプトは Windows 実機では未検証です**（Linux 上の PowerShell 7 で、ファイル解析の部分だけ確認済み）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
-- **Windows OS のビルド番号判定と `--resolve-hashes` は、実際の外部サービスに接続した確認ができていません。** 初回実行時に「取得できませんでした」と出る、または明らかにおかしい結果になる場合は連絡してください。
+- **実機での確認**（[docs/COMPARISON.md](docs/COMPARISON.md) の「実機での確認」）: Windows 11（管理者でない実行、ARM64）での回収、Ubuntu 24.04 と Amazon Linux 2 / 2023 での回収（スクリプトと syft だけの両方）、`db-update` の全件取得と差分更新、MSRC に接続した Windows OS の判定を通して確かめました。Windows Server と、管理者での実行は試していません。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
+- **`--resolve-hashes`（Maven Central への照会）は、実際に接続した確認ができていません。**
 
 ## 7. Trivy を使う場合（任意）
 

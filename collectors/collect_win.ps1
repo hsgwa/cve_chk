@@ -181,6 +181,14 @@ if ($AllDrives) {
         ForEach-Object { $_.RootDirectory.FullName })
 } elseif (-not $ScanRoots) {
     $ScanRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData) | Where-Object { $_ }
+} else {
+    # powershell -File で -ScanRoots 'D:\apps','E:\hulft' と渡すと、配列ではなく
+    # 1 つの文字列 'D:\apps,E:\hulft' になる（Windows 実機で確認）。カンマとセミコロンで分ける
+    $ScanRoots = @($ScanRoots | ForEach-Object { $_ -split '[,;]' } | ForEach-Object { $_.Trim().Trim('"', "'") } |
+        Where-Object { $_ })
+}
+foreach ($root in $ScanRoots) {
+    if (-not (Test-Path -LiteralPath $root)) { Write-Log ('注意: 走査対象のフォルダがありません: {0}' -f $root) }
 }
 $ScanRoots = @($ScanRoots | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)
 Write-Log ('走査対象: {0}' -f ($ScanRoots -join ', '))

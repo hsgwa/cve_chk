@@ -42,16 +42,18 @@ def _add_sheet(workbook, title: str, header: list[str], rows: list[list[str]], s
     for index, name in enumerate(header, start=1):
         longest = max([len(str(name))] + [len(str(r[index - 1]).split("\n")[0]) for r in rows[:500]])
         sheet.column_dimensions[get_column_letter(index)].width = min(max(10, longest * 1.7 + 2), 60)
+    top = Alignment(vertical="top", wrap_text=True)     # 1 つを使い回す（行ごとに作ると数万行で遅い）
+    fills = {color: PatternFill("solid", fgColor=color) for color in _FILL.values()}
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
-            cell.alignment = Alignment(vertical="top", wrap_text=True)
+            cell.alignment = top
         for column in status_columns:
             cell = row[column]
             color = _FILL.get(tables.simple_status(str(cell.value or "")))
             if not color and str(cell.value or "").startswith(AFFECTED):
                 color = _FILL[AFFECTED]
             if color:
-                cell.fill = PatternFill("solid", fgColor=color)
+                cell.fill = fills[color]
     return sheet
 
 

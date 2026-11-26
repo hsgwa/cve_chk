@@ -111,6 +111,8 @@ def _component_path(item: dict) -> str:
 
 
 def load_cyclonedx(data: dict, env: EnvInventory, source: str) -> None:
+    # 回収日時: os_info.json が無い場合（素の syft の出力だけを置いた場合など）は SBOM の作成日時を使う
+    env.collected_at = env.collected_at or str((data.get("metadata") or {}).get("timestamp") or "")
     metadata = (data.get("metadata") or {}).get("component") or {}
     candidates = [metadata, *list(_walk_components(data.get("components") or []))]
     count = 0
@@ -137,14 +139,49 @@ def load_cyclonedx(data: dict, env: EnvInventory, source: str) -> None:
         extra = tuple(n for n in {pname, parsed.full_name if pname else ""} if n)
         if ptype == "golang" and parsed.subpath:
             extra = tuple(n for n in extra if n != pname)   # v1 の名前（github.com/x/y の y）では当てない
+        found_by = next((str(p.get("value") or "") for p in item.get("properties") or []
+                         if p.get("name") == "syft:package:foundBy"), "")
         env.components.append(Component(
             name=str(item["name"]), version=str(item.get("version") or pversion or ""), kind=kind,
             group=str(group or ""), purl=purl, path=_component_path(item), source=source,
-            extra_names=extra, scannable=bool(purl), sbom_file=source,
+            extra_names=extra, scannable=bool(purl), sbom_file=source, found_by=found_by,
         ))
         count += 1
     section = env.sections.setdefault("sbom", SectionStatus(count=0))
     section.count += count
+    _drop_package_note_duplicates(env)
+
+
+# syft が ELF のパッケージ情報（.note.package）から作る OS パッケージ。Amazon Linux 2023 などの実行ファイルに
+# 埋め込まれていて、同じパッケージが rpm / dpkg のデータベースからも取れる。こちらはエポックを持たないため、
+# エポック付きの修正版（1:3.0.8 など）と比べると常に古く見え、誤検出になる（実機の Amazon Linux 2023 で確認）。
+# データベースから取れた同じパッケージがあれば照合から外す（Grype が所有関係で重複を除くのと同じ扱い）。
+PACKAGE_NOTE_CATALOGER = "elf-binary-package-cataloger"
+
+
+def _strip_epoch(version: str) -> str:
+    return version.split(":", 1)[1] if re.match(r"^\d+:", version) else version
+
+
+def _drop_package_note_duplicates(env: EnvInventory) -> None:
+    owned: set[tuple[str, str, str]] = set()
+    for component in env.components:
+        parsed = parse_purl(component.purl)
+        if parsed.type not in ("rpm", "deb", "apk") or component.found_by == PACKAGE_NOTE_CATALOGER:
+            continue
+        version = _strip_epoch(parsed.version or component.version)
+        owned.add((parsed.type, parsed.name.lower(), version))
+        source = parsed.qualifiers.get("upstream") or parsed.qualifiers.get("source") or ""
+        source = source.split("@", 1)[0]
+        match = re.match(r"^(.+)-[^-]+-[^-]+\.src\.rpm$", source)
+        if match or source:
+            owned.add((parsed.type, (match.group(1) if match else source).lower(), version))
+    for component in env.components:
+        if component.found_by != PACKAGE_NOTE_CATALOGER or not component.scannable:
+            continue
+        parsed = parse_purl(component.purl)
+        if (parsed.type, parsed.name.lower(), _strip_epoch(parsed.version or component.version)) in owned:
+            component.scannable = False
 
 
 # ------------------------------------------------- Windows 単体コマンド出力

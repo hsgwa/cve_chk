@@ -103,3 +103,14 @@ def test_db_update_option_combinations(tmp_path, monkeypatch, args, expect_fetch
     monkeypatch.setattr(store, "_fetch", lambda url: fetched.append(url) or (_ for _ in ()).throw(OSError("offline")))
     CliRunner().invoke(main, ["db-update", "--db-dir", str(db), *[a.format(zip=archive) for a in args]])
     assert bool(fetched) is expect_fetch, fetched
+
+
+@pytest.mark.parametrize("script", sorted((ROOT / "collectors").glob("*.ps1")) + sorted((ROOT / "scripts").glob("*.ps1")),
+                         ids=lambda p: p.name)
+def test_powershell_array_parameters_are_split(script):
+    """powershell -File で -X 'a','b' と渡すと、配列ではなく 1 つの文字列 'a,b' になる（Windows 実機で確認した
+    -ScanRoots の不具合）。[string[]] の引数は、カンマで分け直していること。"""
+    text = script.read_text(encoding="utf-8-sig")
+    for name in re.findall(r"\[string\[\]\]\s*\$(\w+)", text):
+        assert re.search(rf"\${name}\s*\|\s*ForEach-Object\s*\{{\s*\$_\s*-split\s*'\[,", text), \
+            f"{script.name}: -{name} をカンマで分けていない"
