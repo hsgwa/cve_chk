@@ -1,6 +1,6 @@
 ﻿<#
 =============================================================================
-daily_run.ps1 - 毎日の自動実行（脆弱性データの更新 → 照合 → レポート）。タスクスケジューラから実行する
+run_check.ps1 - 調査をまとめて実行する（脆弱性データの更新 → 照合 → レポート）。調査のたびに実行する
 
   作業フォルダ（-BaseDir）の決まった場所にあるデータで、次を順に行う。
     1. 脆弱性データの更新（db-update。-SkipDbUpdate で省略）
@@ -16,8 +16,8 @@ daily_run.ps1 - 毎日の自動実行（脆弱性データの更新 → 照合 �
 
   終了コード: 0 = 成功、1 = データの更新の一部に失敗したが照合はできた、2 = 照合できなかった
 
-手動で試す:
-  powershell -ExecutionPolicy Bypass -File scripts\daily_run.ps1 -BaseDir D:\vuln
+実行（管理 PC で、ツールのフォルダから）:
+  powershell -ExecutionPolicy Bypass -File scripts\run_check.ps1 -BaseDir D:\vuln
 =============================================================================
 #>
 param(
@@ -31,7 +31,7 @@ param(
     [string]$Python = 'python',
     # ツールのフォルダ（省略時はこのスクリプトの1つ上）
     [string]$WorkDir,
-    # 脆弱性データの更新をしない（別のタスクで更新している場合）
+    # 脆弱性データの更新をしない（同じ日に更新済みの場合など）
     [switch]$SkipDbUpdate,
     # ログを残す日数
     [int]$KeepLogDays = 90

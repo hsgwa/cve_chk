@@ -2,8 +2,7 @@
 #
 # - tests:        unit tests and static checks on Windows and Linux, oldest and newest supported Python
 # - windows-e2e:  real collection with collect_win.ps1 on a Windows Server runner (as administrator,
-#                 Windows PowerShell 5.1), matching, and the daily automatic run (daily_run.ps1) registered,
-#                 run twice and removed through the task scheduler
+#                 Windows PowerShell 5.1), matching, and the whole check (run_check.ps1) run twice
 # - linux-e2e:    real collection with collect_linux.sh in Amazon Linux 2023 and Ubuntu containers with
 #                 syft 1.18.1 and the newest syft (checksums verified, a tampered tarball refused),
 #                 then matching against freshly downloaded vulnerability data
@@ -100,36 +99,25 @@ jobs:
           print("matching OK")
           EOF
 
-      - name: Register, run and remove the daily automatic run (daily_run.ps1 through the task scheduler)
+      - name: Run the whole check twice with run_check.ps1 (the second run compares with the first)
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $base = 'C:\e2e\daily'
+          $base = 'C:\e2e\work'
           New-Item -ItemType Directory -Force "$base\advisory", "$base\inventory" | Out-Null
           Copy-Item -Recurse C:\e2e\inventory\win-server "$base\inventory\"
           Copy-Item C:\e2e\advisory.csv "$base\advisory\advisory-2026-11.csv"
           Copy-Item C:\e2e\env_master.csv "$base\env_master.csv"
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Run -BaseDir $base -DbDir C:\e2e\vulndb -TaskName 'vuln-triage ci' -NoPassword
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          function Invoke-Task {
-            Start-ScheduledTask -TaskName 'vuln-triage ci'
-            $deadline = (Get-Date).AddMinutes(30)
-            do { Start-Sleep 10; $task = Get-ScheduledTask -TaskName 'vuln-triage ci' } while ($task.State -eq 'Running' -and (Get-Date) -lt $deadline)
-            $info = Get-ScheduledTaskInfo -TaskName 'vuln-triage ci'
-            Write-Host "state=$($task.State) result=$($info.LastTaskResult) last=$($info.LastRunTime)"
-            return $info.LastTaskResult
+          foreach ($i in 1, 2) {
+            powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_check.ps1 -BaseDir $base -DbDir C:\e2e\vulndb
+            if ($LASTEXITCODE -ne 0) { throw "run $i failed: $LASTEXITCODE" }
+            Start-Sleep 1
           }
-          $first = Invoke-Task
-          Start-Sleep 2
-          $second = Invoke-Task
-          Get-ChildItem "$base\logs" | ForEach-Object { Write-Host "== $($_.Name)"; Get-Content $_.FullName -Encoding utf8 | Select-Object -Last 25 }
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Unregister -TaskName 'vuln-triage ci'
-          if ($first -ne 0 -or $second -ne 0) { throw "the task failed: $first / $second" }
           $latest = (Get-Content "$base\reports\latest.txt").Trim()
           $reports = @(Get-ChildItem "$base\reports" -Directory)
           if ($reports.Count -ne 2) { throw "expected 2 report folders, got $($reports.Count)" }
           if (-not (Test-Path "$base\reports\$latest\report_changes.csv")) { throw "the second run did not compare with the first" }
-          Write-Host "daily run OK: $($reports.Name -join ', ') latest=$latest"
+          Write-Host "run_check OK: $($reports.Name -join ', ') latest=$latest"
 
   linux-e2e:
     strategy:

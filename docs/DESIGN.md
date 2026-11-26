@@ -12,7 +12,7 @@
           │  フォルダごと回収し、管理 PC の <inventory-dir>/<環境名>/ に置く
           ▼
 [管理 PC]
-  vuln-triage db-update   脆弱性データを取得し、vulndb/ に保存して索引を作る（毎日、差分）
+  vuln-triage db-update   脆弱性データを取得し、vulndb/ に保存して索引を作る（照合の前に。2 回目以降は差分）
   vuln-triage run         1. 回収ファイルを読む（inventory.py）
                           2. PURL を付ける（sbom_builder.assign_purls）
                           3. 手元の脆弱性データで CVE を照合する（vulndb/scanner.py）

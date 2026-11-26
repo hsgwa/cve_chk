@@ -4,7 +4,7 @@
 
 | 章 | 内容 |
 |---|---|
-| [1. セットアップ（管理 PC）](#1-セットアップ管理-pc) | インストール、脆弱性データの取得と毎日の更新、毎日の自動実行 |
+| [1. セットアップ（管理 PC）](#1-セットアップ管理-pc) | インストール、脆弱性データの取得と更新、調査をまとめて実行するスクリプト |
 | [2. 回収（オフライン環境）](#2-回収オフライン環境) | Linux / Windows / 商用ソフト / Lambda での回収と、回収物の置き方 |
 | [3. 入力ファイル](#3-入力ファイル) | 環境マスタと会社公表リストの書き方 |
 | [4. 実行](#4-実行) | `check-inputs` と `run`、主なオプション |
@@ -15,7 +15,7 @@
 
 ## 1. セットアップ（管理 PC）
 
-Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.4.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
+Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.5.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
 
 ```
 pip install -e .
@@ -29,7 +29,7 @@ vuln-triage run --inventory-dir examples/inventory --env-master examples/env_mas
   --cache-dir examples/cache --offline --base-date 2026-11-20 --out-dir out
 ```
 
-### 脆弱性データの取得と毎日の更新（db-update）
+### 脆弱性データの取得と更新（db-update）
 
 CVE の照合は、ダウンロードして手元に置いた脆弱性データだけで行います。**初回**は、回収データを置いてから次を実行します。
 
@@ -39,14 +39,14 @@ python -m vuln_triage db-update --inventory-dir inventory
 
 回収データに出てくるパッケージの種類を見て、必要なデータだけを取得し、`vulndb/` に照合用の索引（SQLite）を作ります。
 
-**2 回目以降は毎日実行します**（下の「毎日の自動実行」で登録できます）。
+**2 回目以降は、照合の前に実行します**（下の `run_check.ps1` は自動で実行します）。
 
 ```
 python -m vuln_triage db-update                              # 取得済みのデータをすべて更新
 python -m vuln_triage db-update --inventory-dir inventory    # 新しく出てきたエコシステムも追加
 ```
 
-- 毎日の更新は**差分**です。OSV.dev が公開している変更一覧（`modified_id.csv`）を見て、前回から変わった記録だけを取り直します。Maven の場合で 1 日あたり数百 KB 程度です。
+- 2 回目以降の更新は**差分**です。OSV.dev が公開している変更一覧（`modified_id.csv`）を見て、前回から変わった記録だけを取り直します。Maven の場合で 1 日分あたり数百 KB 程度です。
 - Amazon Linux は、公式リポジトリの updateinfo が前回と同じなら、ダウンロード自体を省きます。
 - `config.yaml` の `vulndb.full_refresh_days`（既定 7 日）ごとに全件を取り直して、ずれを防ぎます。差分が `max_delta_records`（既定 3000 件）を超えた日も全件を取り直します。`--full` を付けると、いつでも全件を取り直せます。
 - 更新に失敗したデータは、前回の内容のまま残ります（終了コード 1）。次回の更新で取り直されます。
@@ -66,40 +66,39 @@ python -m vuln_triage db-update --inventory-dir inventory    # 新しく出て�
 - 管理 PC から取得できない場合は、別の PC のブラウザで `https://osv-vulnerabilities.storage.googleapis.com/<エコシステム名>/all.zip`（例 `Maven/all.zip`）を保存し、`db-update --import Maven=Maven.zip` で取り込めます（この場合は差分更新はできず、次回の更新は全件になります）。
 - 取得済みのデータと最終更新日時は `python -m vuln_triage db-update --list` で確認できます。
 
-### 毎日の自動実行（Windows のタスクスケジューラ）
+### 調査をまとめて実行する（run_check.ps1）
 
-**照合とレポートまで毎日自動で行う場合**は `-Run -BaseDir <作業フォルダ>` で登録します（`scripts\daily_run.ps1`。作業フォルダの構成と手順は [ROLLOUT.md](ROLLOUT.md) の 2 章）。データの更新も含むので、下の `db-update` だけのタスクは不要です。
-
-```
-powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Run -BaseDir D:\vuln -NoPassword
-```
-
-データの更新だけを自動にする場合は、管理 PC で一度だけ次を実行すると、毎朝 6:30 に `db-update` を実行するタスクが登録されます（Windows 標準の機能だけを使います）。
+調査のたびに、管理 PC で次の 1 つを実行します。脆弱性データの更新、照合、レポートの作成を順に行います。
 
 ```
-powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -InventoryDir D:\vuln\inventory
+powershell -ExecutionPolicy Bypass -File scripts\run_check.ps1 -BaseDir D:\vuln
 ```
+
+作業フォルダ（`-BaseDir`）の決まった場所にあるデータを使います。
+
+```
+D:\vuln\
+  inventory\<環境名>\   回収物（人が置く）
+  advisory\             会社公表リスト（人が置く。.xlsx / .xlsm / .csv のうち最も新しいものを使う）
+  env_master.csv        環境マスタ（人が用意する）
+  reports\<日付>\       レポート（自動。reports\latest.txt に最新のフォルダ名）
+  logs\                 実行ログ（自動。run_<日付>.log。90 日で消える）
+```
+
+- 前回のレポートが `reports\` にあれば、比べて「前回との差分」も出します。
+- 同じ日に 2 回実行すると、2 回目は `reports\<日付>_<時刻>\` に出します。
+- その日のうちにデータを更新済みなら、`-SkipDbUpdate` で更新を省けます。
+- 終了コード: 0 = 成功、1 = データの更新の一部に失敗したが照合はできた（前回のデータを使った）、2 = 照合できなかった（回収物や会社公表リストが無いなど）。
+- 結果はログ（`logs\run_<日付>.log`）の最後の行で確かめられます（「終了: 成功」/「終了: 失敗」）。
 
 | 引数 | 内容 |
 |---|---|
-| `-Time 06:30` | 実行する時刻 |
-| `-InventoryDir` | 回収データのフォルダ（新しく出てきたエコシステムを自動で追加する） |
+| `-BaseDir` | 作業フォルダ（必須） |
 | `-DbDir` / `-Config` | 脆弱性データの置き場所 / 設定ファイル（省略時は既定） |
-| `-Python` | python.exe の場所（省略時は PATH から探す） |
-| `-RunWhetherLoggedOn` | ログオフ中も実行する（パスワードを尋ねられる）。省略時はログオン中のみ |
-| `-NoPassword` | ログオフ中も実行する。パスワードを保存しない（S4U）。管理者として開いた PowerShell で登録する。インターネットには出られるが、ネットワーク共有には接続できない |
-| `-Unregister` | 登録を削除する |
+| `-Python` | python.exe の場所（省略時は PATH の python） |
+| `-SkipDbUpdate` | 脆弱性データの更新をしない |
 
-- 実行内容は `scripts\daily_db_update.ps1` です。結果は `logs\db-update_<日付>.log` に残り、30 日より古いログは消えます。
-- PC が止まっていて時刻を過ぎた場合は、起動後に実行します。失敗した場合は 30 分後に 2 回まで再試行します。
-- 失敗したかどうかは、ログの最後の行（「終了: 成功」/「終了: 失敗」）か、タスクスケジューラの「履歴」で確認できます。
-- すぐに試すには `Start-ScheduledTask -TaskName "vuln-triage db-update"` を実行します。
-- スクリプトを使わずに登録する場合は、タスクスケジューラで次のように設定します。
-  - トリガー: 毎日 6:30
-  - 操作: プログラム `powershell.exe`、引数 `-NoProfile -ExecutionPolicy Bypass -File "<ツールのフォルダ>\scripts\daily_db_update.ps1" -InventoryDir "<回収データのフォルダ>"`、開始 `<ツールのフォルダ>`
-  - 設定: 「スケジュールされた時刻にタスクを開始できなかった場合、すぐにタスクを実行する」をオン
-
-タスクの登録は、CI（GitHub Actions の Windows Server 2025）で `-NoPassword` の登録・実行・削除を毎回確かめています。`-RunWhetherLoggedOn`（パスワードを保存する）と、省略時（ログオン中のみ）は自動では確かめていません。初回は登録後に「すぐに試す」で 1 回実行し、ログに「終了: 成功」と出ることを確認してください。
+`db-update` と `run` を個別に実行することもできます（上の db-update と、4 章）。
 
 Trivy（`trivy.exe`）を使いたい場合は `--scanner trivy` で従来どおり使えます（7 章参照）。
 
@@ -238,7 +237,7 @@ python -m vuln_triage check-inputs --inventory-dir inventory --env-master env_ma
 python -m vuln_triage run          --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx --out-dir out
 ```
 
-脆弱性データは毎日自動で更新されている前提です（上の「毎日の自動実行」）。回収データを入れ替えて新しい種類のパッケージが増えた場合は、`run` の前に `python -m vuln_triage db-update --inventory-dir inventory` を実行してください。
+ふだんは 1 章の `run_check.ps1` でまとめて実行します。個別に実行する場合は、`run` の前に `python -m vuln_triage db-update --inventory-dir inventory` で脆弱性データを更新してください（回収データに新しい種類のパッケージがあれば、そのデータも取得します）。
 
 `check-inputs` は判定をせず、回収データの読み込み結果と、通達の製品名が回収データのどれに当たったかを表示します。**新しい通達を取り込んだら、まずこれで「該当なし」が表記ゆれでないかを確認してください。**
 

@@ -93,7 +93,7 @@ def main() -> None:
 def db_update(inventory_dir, ecosystems, imports, force_full, db_dir, config_path, show):
     """脆弱性データ（OSV.dev / Amazon Linux の公式情報）を取得・更新します。
 
-    引数なしで実行すると、取得済みのデータをすべて更新します（毎日の自動実行用）。
+    引数なしで実行すると、取得済みのデータをすべて更新します。
     2 回目以降は前回からの変更分だけを取得し、config.yaml の vulndb.full_refresh_days ごとに全件を取り直します。
     """
     config = load_config(config_path or _default_config())

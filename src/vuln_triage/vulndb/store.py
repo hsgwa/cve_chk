@@ -4,7 +4,7 @@
   パッケージ名から記録を引くための索引を SQLite（Python 標準）に作る。
 - Amazon Linux は OSV.dev に無いため、公式リポジトリの updateinfo.xml を
   OSV と同じ形式の zip に変換して同じ仕組みで扱う。
-- 毎日の更新は差分で行う。OSV.dev が公開している modified_id.csv（更新日時と記録 ID の一覧）で
+- 2 回目以降の更新は差分で行う。OSV.dev が公開している modified_id.csv（更新日時と記録 ID の一覧）で
   前回より新しい記録だけを1件ずつ取り直し、SQLite に保存する。一定日数ごとに全件を取り直す。
 """
 from __future__ import annotations
