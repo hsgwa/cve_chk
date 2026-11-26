@@ -96,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Invent
   - 操作: プログラム `powershell.exe`、引数 `-NoProfile -ExecutionPolicy Bypass -File "<ツールのフォルダ>\scripts\daily_db_update.ps1" -InventoryDir "<回収データのフォルダ>"`、開始 `<ツールのフォルダ>`
   - 設定: 「スケジュールされた時刻にタスクを開始できなかった場合、すぐにタスクを実行する」をオン
 
-**注意: タスクの登録（`register_daily_task.ps1`）は Windows 実機では未確認です**（開発環境の Linux では、`daily_db_update.ps1` の実行とログ出力だけを確認しています）。初回は登録後に「すぐに試す」で 1 回実行し、ログに「終了: 成功」と出ることを確認してください。
+タスクの登録は、CI（GitHub Actions の Windows Server 2025）で `-NoPassword` の登録・実行・削除を毎回確かめています。`-RunWhetherLoggedOn`（パスワードを保存する）と、省略時（ログオン中のみ）は自動では確かめていません。初回は登録後に「すぐに試す」で 1 回実行し、ログに「終了: 成功」と出ることを確認してください。
 
 Trivy（`trivy.exe`）を使いたい場合は `--scanner trivy` で従来どおり使えます（7 章参照）。
 
@@ -300,7 +300,7 @@ python -m vuln_triage run          --inventory-dir inventory --env-master env_ma
 - **不具合の記録と類似不良の確認**: [docs/DEFECTS.md](docs/DEFECTS.md)。実データの監査は `python tools/audit_vulndb.py --db-dir vulndb --inventory-dir inventory`。
 - **照合の精度**: Trivy・Grype・OSV-Scanner と同じ SBOM で結果を比べました（[docs/COMPARISON.md](docs/COMPARISON.md)）。Amazon Linux 2 / 2023 の OS パッケージは Grype と完全に一致し、Java・Python・npm・Go・Rust のライブラリは他ツールの共通部分をすべて含み、Ubuntu の OS パッケージも Grype とほぼ一致しました。他の3ツールがそろって検出していて本ツールだけが見落としたものは 0 件です。Ruby は Trivy 独自のデータ源の分だけ少なくなります。実行ファイル自体（ruby・python・node のバイナリなど）の照合は行いません。
 - **Amazon Linux**: Amazon Linux 2 は core と extras の全トピック（kernel-5.4 / 5.10 / 5.15、nginx1、php8.x など 73 件）、Amazon Linux 2023 は core の情報を取得します。x86_64 の情報で、arm64 にも同じ版番号のため流用します。EMR 独自のパッケージは含みません。公式情報に CVSS が無いため、Debian のデータの同じ CVE から点数を引いています（見つからなければ「CVSS 不明」で Rank-C、備考に Amazon の深刻度を表示）。
-- **実機での確認**（[docs/COMPARISON.md](docs/COMPARISON.md) の「実機での確認」）: Windows 11（管理者でない実行、ARM64）での回収、Ubuntu 24.04 と Amazon Linux 2 / 2023 での回収（スクリプトと syft だけの両方）、`db-update` の全件取得と差分更新、MSRC に接続した Windows OS の判定を通して確かめました。Windows Server と、管理者での実行は試していません。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
+- **実機での確認**（[docs/COMPARISON.md](docs/COMPARISON.md) の「実機での確認」）: Windows 11（管理者でない実行、ARM64）での回収、Ubuntu 24.04 と Amazon Linux 2 / 2023 での回収（スクリプトと syft だけの両方）、`db-update` の全件取得と差分更新、MSRC に接続した Windows OS の判定を通して確かめました。Windows Server 2025（管理者）での回収と照合は CI で毎回確かめています（`.github/workflows/ci.yml`）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
 - **`--resolve-hashes`（Maven Central への照会）は、実際に接続した確認ができていません。**
 
 ## 7. Trivy を使う場合（任意）
@@ -322,3 +322,5 @@ python examples/make_advisory_list.py     # サンプルの会社公表リスト
 ```
 
 `examples/vulndb/` は、本物の OSV.dev / Amazon Linux のデータから、サンプルのパッケージに関係する記録だけを抜き出したものです（`db-update --import` で作成）。
+
+GitHub Actions の CI（`.github/workflows/ci.yml`）が、push のたびに単体テストと、Windows Server・Amazon Linux 2023・Ubuntu 24.04 での回収から照合までの試験を行います。変更履歴は [CHANGELOG.md](CHANGELOG.md)、不具合の記録は [docs/DEFECTS.md](docs/DEFECTS.md) にあります。

@@ -271,4 +271,4 @@ CVE だけの通達で何も当たらないときは、照合できたパッケ�
 | `tools/audit_vulndb.py` | 実データの監査。系統の分類（A）、extras の網羅（B）、版の比較規則と範囲の順序（C）、照合結果の不変条件（D1〜D5）。問題があれば終了コード 1 |
 | 4 ツール比較 | 同じ SBOM を Trivy・Grype・OSV-Scanner にかけて比べる（[COMPARISON.md](COMPARISON.md)）。データ源や判定を変えたら再実行する |
 
-実機での確認の結果は [COMPARISON.md](COMPARISON.md) の「実機での確認」にあります。まだ確かめていないこと: Windows Server と管理者での回収、タスクスケジューラへの登録、Maven Central への実際の接続（`--resolve-hashes`）です。
+実機での確認の結果は [COMPARISON.md](COMPARISON.md) の「実機での確認」にあります。CI（`.github/workflows/ci.yml`）は、push のたびに単体テスト（Windows / Linux、Python 3.10 / 3.13）、Windows Server 2025 での回収・照合・タスクの登録と実行、Amazon Linux 2023 と Ubuntu 24.04 のコンテナでの回収・照合を行います。まだ確かめていないこと: Maven Central への実際の接続（`--resolve-hashes`）と、Windows Server 2016 / 2019 などの古い版です。
