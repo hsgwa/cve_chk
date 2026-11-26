@@ -28,7 +28,9 @@ param(
     # dll のバージョン情報を取らない（exe のみにして時間を短縮する）
     [switch]$SkipDll,
     # 入れ子になった jar をたどる深さ
-    [int]$MaxNestDepth = 3
+    [int]$MaxNestDepth = 3,
+    # 通常の優先度で実行する（既定は「通常以下」にして業務処理を優先させる）
+    [switch]$NormalPriority
 )
 
 # ---- 個別製品の版取得 --------------------------------------------------------
@@ -84,7 +86,16 @@ try {
     $isAdmin = (New-Object Security.Principal.WindowsPrincipal($identity)).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
 } catch { }
-Write-Log ('収集開始: host={0} admin={1}' -f $hostName, $isAdmin)
+$startTime = Get-Date
+$priority = 'Normal'
+if (-not $NormalPriority) {
+    # CPU の優先度を「通常以下」にする。ディスクの読み込みも、同じプロセスの優先度に従って後回しにされる
+    try {
+        [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
+        $priority = 'BelowNormal'
+    } catch { }
+}
+Write-Log ('収集開始: host={0} admin={1} priority={2}' -f $hostName, $isAdmin, $priority)
 if (-not $isAdmin) { Write-Log '注意: 管理者ではありません。読めないフォルダは結果から漏れます' }
 
 # ---- OS ----------------------------------------------------------------------
@@ -480,6 +491,8 @@ $inventory = [ordered]@{
     host = $hostName
     collected_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     run_as_admin = $isAdmin
+    duration_sec = [int]((Get-Date) - $startTime).TotalSeconds
+    priority = $priority
     os = $os
     scan_roots = @($ScanRoots)
     sections = $sections
@@ -488,5 +501,5 @@ $inventory = [ordered]@{
 $json = $inventory | ConvertTo-Json -Depth 8
 $outFile = Join-Path $OutDir 'inventory.json'
 [System.IO.File]::WriteAllText($outFile, $json, (New-Object System.Text.UTF8Encoding($false)))
-Write-Log ('収集終了: {0}' -f $outFile)
+Write-Log ('収集終了（{0} 秒）: {1}' -f $inventory.duration_sec, $outFile)
 Write-Log ('{0} をフォルダごと回収してください' -f $OutDir)

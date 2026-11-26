@@ -87,7 +87,7 @@ def test_cli_end_to_end(examples, tmp_path):
     assert any(r["CVSS_v3"] for r in amazon)                                                   # 点数は Debian のデータから
 
     workbook = load_workbook(out / "report.xlsx")
-    assert workbook.sheetnames == ["サマリ", "通達別一覧", "通達×環境", "明細", "新規検出（参考）", "収集状況"]
+    assert workbook.sheetnames == ["サマリ", "通達別一覧", "要更新パッケージ", "通達×環境", "明細", "新規検出（参考）", "収集状況"]
     assert workbook["通達別一覧"].max_row == 12
     coverage = {row[0]: row for row in workbook["収集状況"].iter_rows(min_row=2, values_only=True)}
     assert coverage["win-legacy"][3] == "未登録" and coverage["win-legacy"][9] == "不可"
@@ -183,3 +183,28 @@ def test_stale_database_warning_is_one_line(examples, tmp_path):
     assert result.exit_code == 0, result.output
     lines = [line for line in result.output.splitlines() if "更新が古くなっています" in line]
     assert len(lines) == 1 and "Maven（" in lines[0] and "日前）" in lines[0]
+
+
+def test_update_table_groups_findings_per_package(config):
+    """要更新パッケージ: 環境 × パッケージごとにまとめ、すべての脆弱性が直る版（修正版の最大）を出す。"""
+    from datetime import date
+
+    from vuln_triage.models import Verdict
+    from vuln_triage.report import tables
+
+    def row(cve, fixed, cvss, rank, status="影響あり", advisory=""):
+        return Verdict(status=status, env="web", exposure="internet", cve_id=cve, advisory_id=advisory,
+                       package="openssl", version="3.0.2-0ubuntu1.10", path="Ubuntu", cvss=cvss, rank=rank,
+                       deadline=date(2026, 12, 1), fixed=fixed, ecosystem="Ubuntu")
+    rows = [row("CVE-1", "3.0.2-0ubuntu1.9", 9.8, "Rank-S", advisory="ADV-1")]
+    new = [row("CVE-2", "3.0.2-0ubuntu1.17", 5.0, "Rank-B", status="影響あり（新規検出）"),
+           row("CVE-3", "3.0.2-0ubuntu1.12", 7.5, "Rank-A", status="影響あり（新規検出）"),
+           row("CVE-4", "", 4.0, "Rank-C", status="影響あり（新規検出）"),
+           row("CVE-5", "3.0.2-0ubuntu1.20", 9.0, "Rank-S", status="影響なし")]          # 影響なしは含めない
+    table = tables.update_table(rows, new, config)
+    assert len(table) == 1
+    line = dict(zip(tables.UPDATE_HEADER, table[0]))
+    assert line["この版以上に更新"] == "3.0.2-0ubuntu1.17"      # 文字列の順では 1.9 が最大になってしまう
+    assert (line["脆弱性（件）"], line["修正版の無いもの（件）"], line["うち会社公表の通達"]) == ("4", "1", "ADV-1")
+    assert (line["社内ランク（最も厳しい）"], line["最大CVSS"]) == ("Rank-S", "9.8")
+    assert line["CVE（CVSS の高い順、先頭 10 件）"] == "CVE-1、CVE-3、CVE-2、CVE-4"

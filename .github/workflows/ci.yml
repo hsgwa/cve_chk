@@ -1,0 +1,186 @@
+# Continuous integration for vuln-triage.
+#
+# - tests:        unit tests and static checks on Windows and Linux, oldest and newest supported Python
+# - windows-e2e:  real collection with collect_win.ps1 on a Windows Server runner (as administrator,
+#                 Windows PowerShell 5.1), matching, and registering/running/removing the daily task
+# - linux-e2e:    real collection with collect_linux.sh (syft) in Amazon Linux 2023 and Ubuntu containers,
+#                 then matching against freshly downloaded vulnerability data
+name: ci
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+
+  windows-e2e:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e .
+
+      - name: Parse every PowerShell script with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $failed = $false
+          Get-ChildItem collectors, scripts -Filter *.ps1 | ForEach-Object {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors)
+            if ($errors) { $failed = $true; $errors | ForEach-Object { Write-Host "$($_.Extent.File):$($_.Extent.StartLineNumber): $($_.Message)" } }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Place a vulnerable jar (log4j-core 2.14.1) in a test folder
+        shell: bash
+        run: |
+          mkdir -p /c/e2e/apps
+          jar=org/apache/logging/log4j/log4j-core/2.14.1/log4j-core-2.14.1.jar
+          curl -sSfL --retry 3 --retry-delay 10 --retry-all-errors -o /c/e2e/apps/log4j-core-2.14.1.jar "https://repo1.maven.org/maven2/$jar" \
+            || curl -sSfL --retry 3 -o /c/e2e/apps/log4j-core-2.14.1.jar "https://maven-central.storage-download.googleapis.com/maven2/$jar"
+
+      - name: Collect with collect_win.ps1 (README usage, two scan roots)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File collectors\collect_win.ps1 -ScanRoots 'C:\e2e\apps','C:\Program Files\Git' -SkipDll -OutDir C:\e2e\inventory\win-server
+          Get-Content C:\e2e\inventory\win-server\collect.log -Encoding utf8
+
+      - name: Check the collected inventory
+        shell: python
+        run: |
+          import json, re
+          data = json.load(open(r"C:\e2e\inventory\win-server\inventory.json", encoding="utf-8-sig"))
+          s = data["sections"]
+          assert data["completed"] is True and data["run_as_admin"] is True, data.get("run_as_admin")
+          assert data["priority"] == "BelowNormal" and isinstance(data["duration_sec"], int)
+          assert re.match(r"^10\.0\.\d+\.\d+$", data["os"]["build"]), data["os"]
+          assert len(data["scan_roots"]) == 2, data["scan_roots"]
+          for name in ("hotfixes", "installed_software", "executables", "java_archives", "running"):
+              assert s[name]["status"] == "ok", (name, s[name].get("reason"))
+          assert s["installed_software"]["items"], "no installed software"
+          jars = {(j.get("group"), j.get("artifact"), j.get("version")) for j in s["java_archives"]["items"]}
+          assert ("org.apache.logging.log4j", "log4j-core", "2.14.1") in jars, jars
+          print("inventory OK:", data["os"]["product_name"], data["os"]["build"], len(s["installed_software"]["items"]), "programs")
+
+      - name: Match (real Maven data, Windows OS through MSRC)
+        shell: bash
+        run: |
+          printf 'env_name,exposure,system_name\nwin-server,internet,CI\n' > /c/e2e/env_master.csv
+          printf '通達番号,CVE番号,製品名,影響バージョン\nT-1,CVE-2021-44228,log4j-core,\nT-2,,log4j-core,<2.17.1\n' > /c/e2e/advisory.csv
+          vuln-triage db-update --db-dir /c/e2e/vulndb --ecosystem Maven
+          vuln-triage run --inventory-dir /c/e2e/inventory --env-master /c/e2e/env_master.csv \
+            --advisory /c/e2e/advisory.csv --db-dir /c/e2e/vulndb --cache-dir /c/e2e/cache --out-dir /c/e2e/report
+          python - <<'EOF'
+          import csv
+          rows = list(csv.DictReader(open(r"C:\e2e\report\report_detail.csv", encoding="utf-8-sig")))
+          got = {(r["社内通達ID"], r["影響有無"]) for r in rows}
+          assert got == {("T-1", "影響あり"), ("T-2", "影響あり")}, got
+          assert all(r["社内ランク"] == "Rank-S" for r in rows if r["社内通達ID"] == "T-1"), rows
+          print("matching OK")
+          EOF
+
+      - name: Register, run and remove the daily update task
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -DbDir C:\e2e\vulndb -TaskName 'vuln-triage ci' -NoPassword
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Start-ScheduledTask -TaskName 'vuln-triage ci'
+          $deadline = (Get-Date).AddMinutes(20)
+          do { Start-Sleep 10; $task = Get-ScheduledTask -TaskName 'vuln-triage ci' } while ($task.State -eq 'Running' -and (Get-Date) -lt $deadline)
+          $info = Get-ScheduledTaskInfo -TaskName 'vuln-triage ci'
+          Write-Host "state=$($task.State) result=$($info.LastTaskResult) last=$($info.LastRunTime)"
+          Get-ChildItem logs -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "== $($_.Name)"; Get-Content $_.FullName -Encoding utf8 | Select-Object -Last 15 }
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Unregister -TaskName 'vuln-triage ci'
+          if ($info.LastTaskResult -ne 0) { throw "the task failed: $($info.LastTaskResult)" }
+
+  linux-e2e:
+    runs-on: ubuntu-24.04
+    env:
+      SYFT_VERSION: "1.18.1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e .
+
+      - name: Download syft and a vulnerable jar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "v${SYFT_VERSION}" -R anchore/syft -p "syft_${SYFT_VERSION}_linux_amd64.tar.gz" -D collectors
+          mkdir -p testapp
+          jar=org/apache/logging/log4j/log4j-core/2.14.1/log4j-core-2.14.1.jar
+          curl -sSfL --retry 3 --retry-delay 10 --retry-all-errors -o testapp/log4j-core-2.14.1.jar "https://repo1.maven.org/maven2/$jar" \
+            || curl -sSfL --retry 3 -o testapp/log4j-core-2.14.1.jar "https://maven-central.storage-download.googleapis.com/maven2/$jar"
+
+      - name: Collect in Amazon Linux 2023 and Ubuntu 24.04 containers
+        run: |
+          for image in amazonlinux:2023 ubuntu:24.04; do
+            name=$(echo "$image" | tr ':.' '--')
+            docker run --rm --hostname "$name" -v "$PWD:/w" "$image" bash -c '
+              if command -v dnf >/dev/null; then dnf install -y -q tar gzip findutils hostname procps-ng util-linux >/dev/null
+              else apt-get update -qq && apt-get install -y -qq procps >/dev/null; fi
+              mkdir -p /opt/testapp && cp /w/testapp/log4j-core-2.14.1.jar /opt/testapp/
+              OUT_DIR=/w/inventory/'"$name"' EXTRA_EXCLUDES="./w/**" bash /w/collectors/collect_linux.sh
+            '
+          done
+          sudo chown -R "$(id -u)" inventory
+          for d in inventory/*; do echo "== $d"; cat "$d/collect.log"; done
+
+      - name: Check the collected inventory
+        shell: python
+        run: |
+          import json, pathlib
+          for d in sorted(pathlib.Path("inventory").iterdir()):
+              info = json.loads((d / "os_info.json").read_text(encoding="utf-8"))
+              assert info["completed"] and info["syft"]["status"] == "ok", (d.name, info["syft"])
+              assert info["low_priority"] is True and isinstance(info["duration_sec"], int), info
+              sbom = json.loads((d / "cdx_syft.json").read_text(encoding="utf-8"))
+              assert any("log4j-core" in c.get("name", "") for c in sbom["components"]), d.name
+              print(d.name, info["os"]["pretty_name"], len(sbom["components"]), "components", info["duration_sec"], "s")
+
+      - name: Match against freshly downloaded data
+        run: |
+          printf 'env_name,exposure,system_name\namazonlinux-2023,internal,CI\nubuntu-24-04,internet,CI\n' > env_master.csv
+          printf '通達番号,CVE番号,製品名,影響バージョン\nT-1,CVE-2021-44228,log4j-core,\n' > advisory.csv
+          vuln-triage db-update --db-dir vulndb --inventory-dir inventory
+          vuln-triage run --inventory-dir inventory --env-master env_master.csv --advisory advisory.csv \
+            --db-dir vulndb --out-dir report --no-msrc
+          python - <<'EOF'
+          import csv
+          rows = list(csv.DictReader(open("report/report_detail.csv", encoding="utf-8-sig")))
+          got = {(r["該当環境"], r["影響有無"]) for r in rows}
+          assert got == {("amazonlinux-2023", "影響あり"), ("ubuntu-24-04", "影響あり")}, got
+          updates = list(csv.DictReader(open("report/report_updates.csv", encoding="utf-8-sig")))
+          assert any(u["製品・パッケージ名"].endswith("log4j-core") and u["この版以上に更新"] for u in updates), updates[:3]
+          print("matching OK;", len(updates), "packages to update")
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-e2e-report
+          path: |
+            inventory/
+            report/

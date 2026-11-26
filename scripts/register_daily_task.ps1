@@ -12,6 +12,10 @@ register_daily_task.ps1 - 脆弱性データの毎日の更新を、Windows の�
   # ログオフ中も実行する（パスワードを尋ねられる）
   powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -InventoryDir D:\vuln\inventory -RunWhetherLoggedOn
 
+  # ログオフ中も実行する（パスワードを保存しない S4U。インターネットには出られるが、ネットワーク共有には
+  # 接続できない。管理者として開いた PowerShell で登録する）
+  powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -InventoryDir D:\vuln\inventory -NoPassword
+
   # 登録を消す
   powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Unregister
 =============================================================================
@@ -26,6 +30,8 @@ param(
     [string]$TaskName = 'vuln-triage db-update',
     # ログオフ中も実行する（実行するユーザーのパスワードが必要）
     [switch]$RunWhetherLoggedOn,
+    # ログオフ中も実行する。パスワードを保存しない（S4U）。インベントリや脆弱性データをネットワーク共有に置く場合は使えない
+    [switch]$NoPassword,
     [switch]$Unregister
 )
 
@@ -63,7 +69,11 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 2 `
 $user = '{0}\{1}' -f $env:USERDOMAIN, $env:USERNAME
 $description = '脆弱性データ（OSV.dev / Amazon Linux）の毎日の差分更新。ログ: ' + (Join-Path $toolDir 'logs')
 
-if ($RunWhetherLoggedOn) {
+if ($NoPassword) {
+    $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType S4U -RunLevel Limited
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
+        -Description $description -Principal $principal -Force | Out-Null
+} elseif ($RunWhetherLoggedOn) {
     $credential = Get-Credential -UserName $user -Message 'タスクを実行するユーザーのパスワードを入力してください'
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
         -Description $description -User $credential.UserName `

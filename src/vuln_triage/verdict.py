@@ -130,6 +130,7 @@ class Judge:
                 advisory, env, AFFECTED_UNCOMPARABLE if finding.uncomparable else AFFECTED, CAT_TRIVY,
                 package=finding.pkg_name, version=finding.installed_version, condition=condition,
                 path=finding.path or finding.sbom, cvss=finding.cvss, note=" / ".join(notes),
+                fixed=finding.fixed_version, ecosystem=finding.sbom,
             ))
         decided = False
         if self.msrc is not None:
@@ -315,6 +316,7 @@ class Judge:
                     cve_id=finding.cve_id, package=finding.pkg_name, version=finding.installed_version,
                     condition=f"修正: {finding.fixed_version}" if finding.fixed_version else "",
                     path=finding.path or finding.sbom, cvss=finding.cvss, note=" / ".join(n for n in notes if n),
+                    fixed=finding.fixed_version, ecosystem=finding.sbom,
                 )
                 row.rank, row.deadline, row.base_date = decide_rank(
                     None, row.cvss, env.exposure, self.config, self.base_date)

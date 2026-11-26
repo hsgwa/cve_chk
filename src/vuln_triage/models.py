@@ -184,6 +184,8 @@ class Verdict:
     base_date: date | None = None
     note: str = ""
     advisory: Advisory | None = None
+    fixed: str = ""           # 修正版（脆弱性データベースの検出の場合）
+    ecosystem: str = ""       # 修正版の比較に使う系統（Ubuntu、Maven、Amazon Linux:2 など）
 
     @property
     def affected(self) -> bool:

@@ -68,6 +68,9 @@ def overview_lines(info: dict[str, Any], config: dict[str, Any], messages: list[
     if info["overdue"]:
         lines.append(f"期限超過: {info['overdue']} 行")
     lines.append(f"通達に無い新規検出（参考）: {info['new_findings']} 件")
+    if info.get("updates"):
+        lines.append(f"要更新パッケージ（環境 × パッケージ。通達と新規検出の両方）: {info['updates']} 件"
+                     "（「要更新パッケージ」シート / report_updates.csv）")
     if info.get("db"):
         lines.append("脆弱性データの更新日時: " + "、".join(f"{k} {v.strip()}" for k, v in info["db"].items()))
     if info["unregistered"]:
@@ -104,6 +107,10 @@ def write_reports(
     if new:
         written.append(out / "report_new_findings.csv")
         write_csv(written[-1], tables.DETAIL_HEADER, new)
+    updates = tables.update_table(result.rows, result.new_findings, config)
+    if updates:
+        written.append(out / "report_updates.csv")
+        write_csv(written[-1], tables.UPDATE_HEADER, updates)
 
     if xlsx:
         from openpyxl import Workbook
@@ -126,6 +133,7 @@ def write_reports(
         sheet.column_dimensions["A"].width = 120
 
         _add_sheet(workbook, "通達別一覧", tables.SUMMARY_HEADER, summary, status_columns=[4])
+        _add_sheet(workbook, "要更新パッケージ", tables.UPDATE_HEADER, updates)
         _add_sheet(workbook, "通達×環境", matrix_header, matrix,
                    status_columns=list(range(3, len(matrix_header))))
         _add_sheet(workbook, "明細", tables.DETAIL_HEADER, detail, status_columns=[6])

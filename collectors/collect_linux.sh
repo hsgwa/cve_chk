@@ -19,6 +19,8 @@
 #   WORK_DIR        syft の展開先（既定 ./.syft_work。noexec の場所は不可）
 #   SYFT_TARBALL    syft の tar.gz の場所（既定 スクリプトと同じフォルダから自動選択）
 #   SYFT_BIN        展開済みの syft を直接指定する場合
+#   LOW_PRIORITY    1（既定）なら CPU とディスクの優先度を最低にして実行する（nice -n 19、ionice -c3）。0 で無効
+#   SYFT_TIMEOUT_SEC syft の打ち切り時間（秒。既定 10800 = 3 時間）。打ち切ると syft の失敗として記録する
 # =============================================================================
 set -u
 
@@ -54,6 +56,21 @@ SCAN_ROOT="${SCAN_ROOT:-/}"
 EXTRA_EXCLUDES="${EXTRA_EXCLUDES:-}"
 WORK_DIR="${WORK_DIR:-$SCRIPT_DIR/.syft_work}"
 SYFT_BIN="${SYFT_BIN:-}"
+LOW_PRIORITY="${LOW_PRIORITY:-1}"
+SYFT_TIMEOUT_SEC="${SYFT_TIMEOUT_SEC:-10800}"
+
+# ---- 負荷を抑える（既定） ------------------------------------------------------
+# 業務処理を優先させるため、CPU とディスクの優先度を最低にして自分自身を実行し直す
+if [ "$LOW_PRIORITY" != "0" ] && [ -z "${VT_LOW_PRIORITY_APPLIED:-}" ]; then
+  export VT_LOW_PRIORITY_APPLIED=1
+  PRIO=()
+  command -v nice >/dev/null 2>&1 && PRIO+=(nice -n 19)
+  command -v ionice >/dev/null 2>&1 && ionice -c3 true 2>/dev/null && PRIO+=(ionice -c3)
+  if [ ${#PRIO[@]} -gt 0 ]; then
+    exec "${PRIO[@]}" bash "$0" "$@"
+  fi
+fi
+START_EPOCH="$(date +%s)"
 
 mkdir -p "$OUT_DIR" || { echo "出力先を作成できません: $OUT_DIR" >&2; exit 1; }
 LOG="$OUT_DIR/collect.log"
@@ -71,6 +88,9 @@ run_limited() {
 }
 
 log "収集開始: host=$HOST scan_root=$SCAN_ROOT out=$OUT_DIR"
+if [ -n "${VT_LOW_PRIORITY_APPLIED:-}" ] && [ "$LOW_PRIORITY" != "0" ]; then
+  log "優先度: 低（nice $(nice 2>/dev/null || echo '?')、ionice $(ionice -p $$ 2>/dev/null || echo 'なし')）。LOW_PRIORITY=0 で通常の優先度"
+fi
 [ "$(id -u)" -ne 0 ] && log "注意: root ではありません。読めないフォルダは結果から漏れます（sudo での実行を推奨）"
 
 # ---- OS 情報 -----------------------------------------------------------------
@@ -149,16 +169,21 @@ if [ -n "$SYFT_BIN" ]; then
     log "syft $SYFT_VERSION で $SCAN_ROOT を走査します（時間がかかります）"
     ARGS=()
     for pattern in "${EXCLUDES[@]}"; do ARGS+=(--exclude "$pattern"); done
-    "$SYFT_BIN" scan "dir:$SCAN_ROOT" "${ARGS[@]}" -o "cyclonedx-json=$SBOM" -q 2>>"$LOG"
+    LIMIT=()
+    command -v timeout >/dev/null 2>&1 && [ "$SYFT_TIMEOUT_SEC" != "0" ] && LIMIT=(timeout "$SYFT_TIMEOUT_SEC")
+    ${LIMIT[@]+"${LIMIT[@]}"} "$SYFT_BIN" scan "dir:$SCAN_ROOT" "${ARGS[@]}" -o "cyclonedx-json=$SBOM" -q 2>>"$LOG"
     SYFT_EXIT=$?
-    if [ "$SYFT_EXIT" -ne 0 ]; then
+    if [ "$SYFT_EXIT" -ne 0 ] && [ "$SYFT_EXIT" -ne 124 ]; then
       # 古い syft には scan サブコマンドが無い
-      "$SYFT_BIN" "dir:$SCAN_ROOT" "${ARGS[@]}" -o "cyclonedx-json=$SBOM" -q 2>>"$LOG"
+      ${LIMIT[@]+"${LIMIT[@]}"} "$SYFT_BIN" "dir:$SCAN_ROOT" "${ARGS[@]}" -o "cyclonedx-json=$SBOM" -q 2>>"$LOG"
       SYFT_EXIT=$?
     fi
     if [ "$SYFT_EXIT" -eq 0 ] && [ -s "$SBOM" ]; then
       SYFT_STATUS="ok"
       log "SBOM を作成しました: $SBOM"
+    elif [ "$SYFT_EXIT" -eq 124 ]; then
+      SYFT_REASON="syft が ${SYFT_TIMEOUT_SEC} 秒で終わらず打ち切りました（SYFT_TIMEOUT_SEC で延長、SCAN_ROOT や EXTRA_EXCLUDES で範囲を調整）"
+      rm -f "$SBOM"
     else
       SYFT_REASON="syft が終了コード $SYFT_EXIT で失敗しました（collect.log を参照）"
       rm -f "$SBOM"
@@ -260,6 +285,8 @@ cat > "$OUT_DIR/os_info.json" <<JSON
   "collector_version": "1",
   "host": "$(json_escape "$HOST")",
   "collected_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+  "duration_sec": $(( $(date +%s) - START_EPOCH )),
+  "low_priority": $([ -n "${VT_LOW_PRIORITY_APPLIED:-}" ] && [ "$LOW_PRIORITY" != "0" ] && echo true || echo false),
   "run_as_root": $([ "$(id -u)" -eq 0 ] && echo true || echo false),
   "scan_root": "$(json_escape "$SCAN_ROOT")",
   "os": {
@@ -285,6 +312,6 @@ cat > "$OUT_DIR/os_info.json" <<JSON
 }
 JSON
 
-log "収集終了。$OUT_DIR をフォルダごと回収してください"
+log "収集終了（$(( $(date +%s) - START_EPOCH )) 秒）。$OUT_DIR をフォルダごと回収してください"
 [ "$SYFT_STATUS" = "ok" ] || exit 3
 exit 0

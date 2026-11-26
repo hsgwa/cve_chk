@@ -80,6 +80,60 @@ def sort_rows(rows: list[Verdict], config: dict[str, Any]) -> list[Verdict]:
     return sorted(rows, key=key)
 
 
+UPDATE_HEADER = [
+    "社内ランク（最も厳しい）", "対応期限（最も早い）", "該当環境", "公開区分", "製品・パッケージ名", "現在バージョン",
+    "この版以上に更新", "脆弱性（件）", "うち会社公表の通達", "修正版の無いもの（件）", "最大CVSS", "検出パス/ソース",
+    "CVE（CVSS の高い順、先頭 10 件）",
+]
+
+
+def _max_version(ecosystem: str, versions: list[str]) -> str:
+    """修正版のうち最も新しいもの（すべての脆弱性が直る版）。比較できなければ文字列の順で選ぶ。"""
+    from ..vulndb.versions import compare, sort_key
+
+    versions = sorted({v for v in versions if v})
+    if not versions:
+        return ""
+    try:
+        return max(versions, key=sort_key(ecosystem or "generic"))
+    except (ValueError, TypeError):
+        return versions[-1]
+
+
+def update_table(rows: list[Verdict], new_findings: list[Verdict], config: dict[str, Any]) -> list[list[str]]:
+    """影響ありの検出を、環境 × パッケージ × 版 × 場所ごとにまとめる（「どれを更新すれば直るか」の一覧）。
+
+    通達の判定と新規検出の両方を含む。修正版が分かるものは、そのうち最も新しい版を「この版以上に更新」に出す。
+    """
+    groups: dict[tuple, list[Verdict]] = {}
+    for row in [*rows, *new_findings]:
+        if not (row.affected or row.status.startswith(AFFECTED)) or not row.package:
+            continue
+        groups.setdefault((row.env, row.package, row.version, row.path), []).append(row)
+    table = []
+    for (env, package, version, path), items in groups.items():
+        by_cve: dict[str, Verdict] = {}
+        for item in items:
+            key = item.cve_id or item.advisory_id or item.package
+            if key not in by_cve or (item.cvss or 0) > (by_cve[key].cvss or 0):
+                by_cve[key] = item
+        cves = sorted(by_cve, key=lambda k: -(by_cve[k].cvss or 0))
+        ranks = [i.rank for i in items if i.rank]
+        rank = min(ranks, key=lambda r: rank_sort_key(r, config)) if ranks else ""
+        deadlines = [i.deadline for i in items if i.deadline]
+        ecosystem = next((i.ecosystem for i in items if i.ecosystem), "")
+        fixed = _max_version(ecosystem, [i.fixed for i in items])
+        advisories = sorted({i.advisory_id for i in items if i.advisory_id})
+        cvss = max((i.cvss for i in items if i.cvss is not None), default=None)
+        table.append([
+            rank, _fmt_date(min(deadlines) if deadlines else None), env, items[0].exposure, package, version,
+            fixed, str(len(by_cve)), "、".join(advisories), str(sum(1 for k in by_cve if not by_cve[k].fixed)),
+            _fmt_cvss(cvss), path, "、".join(cves[:10]) + (f" ほか {len(cves) - 10} 件" if len(cves) > 10 else ""),
+        ])
+    table.sort(key=lambda r: (rank_sort_key(r[0], config) if r[0] else 99, r[1] or "9999", -int(r[7]), r[2], r[4]))
+    return table
+
+
 def detail_table(rows: list[Verdict], config: dict[str, Any]) -> list[list[str]]:
     return [detail_row(r) for r in sort_rows(rows, config)]
 
@@ -207,6 +261,7 @@ def overview(advisories: list[Advisory], rows: list[Verdict], new_findings: list
         "env_affected": dict(Counter(r.env for r in affected)),
         "overdue": sum(1 for r in affected if "期限超過" in r.note),
         "new_findings": len(new_findings),
+        "updates": len(update_table(rows, new_findings, config)),
         "unregistered": [e.name for e in envs if not e.registered],
         "not_collected": [e.name for e in envs if e.not_collected],
         "db": _db_summary(db_info or {}),
