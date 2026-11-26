@@ -208,3 +208,65 @@ def test_update_table_groups_findings_per_package(config):
     assert (line["脆弱性（件）"], line["修正版の無いもの（件）"], line["うち会社公表の通達"]) == ("4", "1", "ADV-1")
     assert (line["社内ランク（最も厳しい）"], line["最大CVSS"]) == ("Rank-S", "9.8")
     assert line["CVE（CVSS の高い順、先頭 10 件）"] == "CVE-1、CVE-3、CVE-2、CVE-4"
+
+
+def test_xlsx_rows_are_capped_but_csv_keeps_everything(examples, tmp_path):
+    """Excel の行数の上限（約 104 万行）を超えないよう、シートは xlsx_max_rows で打ち切る。CSV は全件。"""
+    from openpyxl import load_workbook
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("xlsx_max_rows: 3\n", encoding="utf-8")
+    result = run_examples(examples, tmp_path, "--config", str(config_file))
+    assert result.exit_code == 0, result.output
+    out = tmp_path / "out"
+    new_csv = read_csv(out / "report_new_findings.csv")
+    assert len(new_csv) - 1 > 3
+    workbook = load_workbook(out / "report.xlsx", read_only=True)
+    assert workbook["新規検出（参考）"].max_row == 4                 # 見出し + 3 行
+    assert f"全 {len(new_csv) - 1:,} 行は report_new_findings.csv" in result.output
+
+
+def test_previous_run_comparison(examples, tmp_path):
+    """前回の出力フォルダと比べ、新たに影響あり / 解消 / 継続 / 今回の回収なし を出す。"""
+    import csv
+
+    first = tmp_path / "first"
+    result = run_examples(examples, tmp_path, "--no-xlsx")
+    assert result.exit_code == 0, result.output
+    (tmp_path / "out").rename(first)
+
+    # 前回の結果を作り替える: 影響ありの 1 行を消す（今回は「新たに影響あり」）、修正済みの行と、
+    # 回収していない環境の行を足す（今回は「解消」と「今回の回収なし」）
+    path = first / "report_detail.csv"
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    header = list(rows[0])
+    affected = [r for r in rows if r["影響有無"].startswith("影響あり")]
+    removed = affected[0]
+    rows.remove(removed)
+    fixed = {**affected[1], "CVE_ID": "CVE-2000-0001"}
+    gone = {**affected[1], "該当環境": "decommissioned-host", "CVE_ID": "CVE-2000-0002"}
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=header)
+        writer.writeheader()
+        writer.writerows([*rows, fixed, gone])
+
+    result = run_examples(examples, tmp_path, "--previous", str(first))
+    assert result.exit_code == 0, result.output
+    changes = read_csv(tmp_path / "out" / "report_changes.csv")
+    by_change = {}
+    for line in changes[1:]:
+        by_change.setdefault(line[0], []).append(line)
+    new = {(r[3], r[7], r[4]) for r in by_change["新たに影響あり"]}
+    assert (removed["該当環境"], removed["CVE_ID"] or removed["社内通達ID"], removed["製品・パッケージ名"]) in new
+    assert [(r[3], r[7]) for r in by_change["解消"]] == [(fixed["該当環境"], "CVE-2000-0001")]
+    assert [(r[3], r[7]) for r in by_change["今回の回収なし"]] == [("decommissioned-host", "CVE-2000-0002")]
+    assert by_change["継続"]
+    assert changes[1][0] == "新たに影響あり"                          # 新たに影響ありが先頭
+    assert "前回との差分" in result.output
+
+    from openpyxl import load_workbook
+    assert "前回との差分" in load_workbook(tmp_path / "out" / "report.xlsx", read_only=True).sheetnames
+    # 前回のフォルダに上書きしない
+    bad = run_examples(examples, tmp_path, "--previous", str(tmp_path / "out"))
+    assert bad.exit_code == 2 and "同じフォルダ" in bad.output

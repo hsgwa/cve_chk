@@ -714,3 +714,44 @@ def test_cli_does_not_crash_on_non_japanese_console(tmp_path):
         result = subprocess.run([sys.executable, "-m", "vuln_triage", *args], capture_output=True, env=env)
         assert result.returncode == 0, result.stderr.decode("cp1252", "replace")
         assert b"UnicodeEncodeError" not in result.stderr
+
+
+def test_large_records_use_slim_copy_with_same_results(tmp_path, config):
+    """大きな記録（64 KB 以上）は縮小版で照合し、結果は元の記録と同じ。古い索引には ensure_slim で縮小版を作る。"""
+    from vuln_triage.vulndb import store as store_module
+
+    def kernel(record_id, fixed, versions_only=False):
+        flavors = [{"package": {"ecosystem": "Ubuntu:24.04:LTS", "name": f"linux-flavor{i}"},
+                    "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "9.0"}]}],
+                    "versions": [f"1.{n}" for n in range(60)],
+                    "ecosystem_specific": {"binaries": [{"binary_name": f"linux-modules-{i}-{n}"} for n in range(20)]}}
+                   for i in range(40)]
+        target = {"package": {"ecosystem": "Ubuntu:24.04:LTS", "name": "linux-aws"},
+                  "ranges": [] if versions_only else
+                  [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": fixed}]}],
+                  "versions": ["6.8.0-1.1", "6.8.0-2.2"] if versions_only else ["6.8.0-1.1"]}
+        return {"id": record_id, "upstream": [record_id.removeprefix("UBUNTU-")], "summary": "kernel",
+                "details": "x" * 70000, "affected": [*flavors, target]}
+
+    records = [kernel("UBUNTU-CVE-2026-0001", "6.8.0-50.50"), kernel("UBUNTU-CVE-2026-0002", "6.8.0-1.0"),
+               kernel("UBUNTU-CVE-2026-0003", "", versions_only=True)]
+    assert all(len(json.dumps(r)) >= store_module.SLIM_MIN_BYTES for r in records)
+    db = VulnDB(tmp_path / "db")
+    db.import_zip("Ubuntu", osv_zip(tmp_path / "u.zip", records))
+
+    def scan(db):
+        c = Component(name="linux-modules-x", version="6.8.0-2.2", scannable=True,
+                      purl="pkg:deb/ubuntu/linux-modules-x@6.8.0-2.2?distro=ubuntu-24.04&upstream=linux-aws")
+        return sorted((f.cve_id, f.fixed_version) for f in scan_with_vulndb([make_env(components=[c])], db, config))
+
+    with_slim = scan(db)
+    assert with_slim == [("CVE-2026-0001", "6.8.0-50.50"), ("CVE-2026-0003", "")]
+    conn = db.connect()
+    assert conn.execute("SELECT COUNT(*) FROM slim").fetchone()[0] == 3
+    # 縮小版の無い古い索引: 元の記録で同じ結果になり、ensure_slim で縮小版ができる
+    conn.execute("DELETE FROM slim"); conn.commit(); db.close()
+    old = VulnDB(tmp_path / "db")
+    assert scan(old) == with_slim
+    assert old.ensure_slim() == 3 and old.ensure_slim() == 0
+    old.close()
+    assert scan(VulnDB(tmp_path / "db")) == with_slim

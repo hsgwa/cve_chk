@@ -18,6 +18,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "cvss_source_priority": ["nvd"],
     "aliases": {},
     "stale_days": 90,
+    "xlsx_max_rows": 100000,
     "scanner": "osv",
     "vulndb": {
         "dir": "vulndb",

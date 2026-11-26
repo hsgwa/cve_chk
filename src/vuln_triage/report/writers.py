@@ -91,6 +91,7 @@ def write_reports(
     today: date,
     xlsx: bool = True,
     db_info: dict[str, dict] | None = None,
+    previous: dict | None = None,
 ) -> tuple[list[Path], list[str]]:
     out = Path(out_dir)
     summary = tables.summary_table(advisories, result.rows, config)
@@ -111,9 +112,28 @@ def write_reports(
     if updates:
         written.append(out / "report_updates.csv")
         write_csv(written[-1], tables.UPDATE_HEADER, updates)
+    changes = None
+    if previous is not None:
+        from .diff import DIFF_HEADER, diff_table
+
+        changes, counts = diff_table(result.rows, result.new_findings, envs, previous, config)
+        written.append(out / "report_changes.csv")
+        write_csv(written[-1], DIFF_HEADER, changes)
+        lines.append("前回との差分（環境 × 脆弱性 × パッケージ）: " + "、".join(f"{k} {v} 件" for k, v in counts.items())
+                     + "（「前回との差分」シート / report_changes.csv）")
 
     if xlsx:
         from openpyxl import Workbook
+
+        limit = int(config.get("xlsx_max_rows") or 100000)
+        sheets = {"要更新パッケージ": (updates, "report_updates.csv"), "明細": (detail, "report_detail.csv"),
+                  "新規検出（参考）": (new, "report_new_findings.csv"),
+                  "前回との差分": (changes or [], "report_changes.csv")}
+        for name, (rows, csv_name) in sheets.items():
+            if len(rows) > limit:
+                lines.append(f"注意: Excel の「{name}」は先頭 {limit:,} 行だけを書きました"
+                             f"（全 {len(rows):,} 行は {csv_name}。並びはランク・期限の順）")
+        updates, detail, new = updates[:limit], detail[:limit], new[:limit]
         from openpyxl.styles import Font
 
         workbook = Workbook()
@@ -134,6 +154,10 @@ def write_reports(
 
         _add_sheet(workbook, "通達別一覧", tables.SUMMARY_HEADER, summary, status_columns=[4])
         _add_sheet(workbook, "要更新パッケージ", tables.UPDATE_HEADER, updates)
+        if changes is not None:
+            from .diff import DIFF_HEADER
+
+            _add_sheet(workbook, "前回との差分", DIFF_HEADER, changes[:limit])
         _add_sheet(workbook, "通達×環境", matrix_header, matrix,
                    status_columns=list(range(3, len(matrix_header))))
         _add_sheet(workbook, "明細", tables.DETAIL_HEADER, detail, status_columns=[6])

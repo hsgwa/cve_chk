@@ -137,6 +137,9 @@ def db_update(inventory_dir, ecosystems, imports, force_full, db_dir, config_pat
         except Exception as exc:
             errors[name] = str(exc)
     errors.update(db.update(targets, force_full=force_full))
+    made = db.ensure_slim()
+    if made:
+        _echo(f"照合を速くするための縮小版を作りました: {made} 件（大きな記録だけ。初回のみ）")
     unknown = db.unknown_ecosystems()
     db.close()
     if unknown:
@@ -170,8 +173,11 @@ def db_update(inventory_dir, ecosystems, imports, force_full, db_dir, config_pat
 @click.option("--no-msrc", is_flag=True, help="Windows OS のビルド番号による判定を行わない")
 @click.option("--resolve-hashes", "resolve", is_flag=True, help="名前の分からない jar を SHA-1 で Maven Central に照会する")
 @click.option("--no-xlsx", is_flag=True, help="Excel を出力しない（CSV のみ）")
+@click.option("--previous", type=click.Path(exists=True, file_okay=False),
+              help="前回の出力フォルダ。比べて「新たに影響あり」「解消」を出す（前回との差分）")
 def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory, base_date, scanner, db_dir,
-        skip_trivy, trivy_results_dir, save_trivy_json, work_dir, cache_dir, offline, no_msrc, resolve, no_xlsx):
+        skip_trivy, trivy_results_dir, save_trivy_json, work_dir, cache_dir, offline, no_msrc, resolve, no_xlsx,
+        previous):
     """突き合わせを実行してレポートを出力します。"""
     db_info = None
     try:
@@ -184,6 +190,13 @@ def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory
         envs = load_inventories(inventory_dir, load_env_master(env_master))
         if not envs:
             raise click.ClickException(f"環境フォルダがありません: {inventory_dir}")
+        previous_rows = None
+        if previous:
+            from .report.diff import load_previous
+
+            if Path(previous).resolve() == Path(out_dir).resolve():
+                raise ValueError("--previous と --out-dir に同じフォルダは指定できません（前回の結果を上書きしてしまうため）")
+            previous_rows = load_previous(previous)
         advisory_warnings: list[str] = []
         advisories = load_advisories(advisory, config, advisory_warnings)
         _echo(f"環境 {len(envs)} 件、通達 {len(advisories)} 件を読み込みました")
@@ -227,7 +240,7 @@ def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory
         result = Judge(envs, findings, config, today, msrc).run(advisories, only_advisory=only_advisory)
         result.messages.extend(messages)
         written, lines = write_reports(out_dir, advisories, envs, result, config, today, xlsx=not no_xlsx,
-                                       db_info=db_info)
+                                       db_info=db_info, previous=previous_rows)
     except TrivyNotFoundError as exc:
         _echo(f"エラー: {exc}")
         sys.exit(2)

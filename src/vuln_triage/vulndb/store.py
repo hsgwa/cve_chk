@@ -20,6 +20,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -51,7 +52,42 @@ CREATE TABLE IF NOT EXISTS entries (
 CREATE INDEX IF NOT EXISTS entries_lookup ON entries (name, ecosystem);
 CREATE TABLE IF NOT EXISTS scores (
     vuln_id TEXT, source TEXT, score REAL, UNIQUE (vuln_id, source));
+CREATE TABLE IF NOT EXISTS slim (record_id TEXT PRIMARY KEY, data BLOB);
 """
+
+# 大きな記録（Ubuntu のカーネルの CVE は 1 件 0.5 MB 前後。カーネルの系統ごとに 277 項目が並ぶ）は、
+# 照合に使う項目だけを残した縮小版を zlib で圧縮して索引に入れる。照合ではまずこちらを読む
+# （1 環境の照合が 5 分以上かかり、その 6 割が JSON の読み込みだった）。
+SLIM_MIN_BYTES = 64 * 1024
+
+
+def slim_record(record: dict) -> dict:
+    """照合に使う項目だけを残した記録。
+
+    - 記録: id、aliases、upstream、summary、database_specific の severity / informational / topic
+    - affected の各項目: package、ranges、database_specific の informational。
+      versions（影響のある版の列挙）は、ECOSYSTEM / SEMVER の範囲が無い項目だけ残す（範囲があれば判定に足りる）
+    - 捨てるもの: details、references、ecosystem_specific（バイナリパッケージの一覧）など
+    """
+    out = {k: record[k] for k in ("id", "aliases", "upstream", "summary") if k in record}
+    specific = record.get("database_specific") or {}
+    out["database_specific"] = {k: specific[k] for k in ("severity", "informational", "topic") if k in specific}
+    affected_items = []
+    for affected in record.get("affected") or []:
+        item = {k: affected[k] for k in ("package", "ranges") if k in affected}
+        if not any((r or {}).get("type") in ("ECOSYSTEM", "SEMVER") for r in affected.get("ranges") or []):
+            if affected.get("versions"):
+                item["versions"] = affected["versions"]
+        informational = (affected.get("database_specific") or {}).get("informational")
+        if informational:
+            item["database_specific"] = {"informational": informational}
+        affected_items.append(item)
+    out["affected"] = affected_items
+    return out
+
+
+def _slim_blob(record: dict) -> bytes:
+    return zlib.compress(json.dumps(slim_record(record), ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
 # 後から足した sources の列（古い DB は開いたときに追加する）
@@ -154,6 +190,8 @@ class VulnDB:
         # 読んだ記録の一時保管（同じソースパッケージの照合で使い回す）。メモリを使いすぎないよう件数を絞る（Ubuntu のカーネルの記録は 1 件 0.5 MB 前後）
         self._records: OrderedDict[tuple[str, str], dict | None] = OrderedDict()
         self._cache_size = 256
+        self._slim_cache: OrderedDict[str, dict] = OrderedDict()   # 縮小版は 1 件 50 KB 前後なので多めに持つ
+        self._has_slim: bool | None = None
 
     # ------------------------------------------------------------ 共通
 
@@ -206,12 +244,14 @@ class VulnDB:
         count = 0
         record_ids_in_zip: list[str] = []
         with zipfile.ZipFile(self.dir / relative) as archive:
-            batch, scores = [], []
+            batch, scores, slims = [], [], []
+            big_ids: set[str] = set()
             for member in archive.namelist():
                 if not member.endswith(".json"):
                     continue
+                raw = archive.read(member)
                 try:
-                    record = json.loads(archive.read(member))
+                    record = json.loads(raw)
                 except ValueError:
                     continue
                 if record.get("withdrawn"):
@@ -224,7 +264,13 @@ class VulnDB:
                     if ecosystem and name:
                         batch.append((ecosystem, normalize_package(ecosystem, name), record_id, relative, member))
                 scores.extend(record_scores(record))
+                if len(raw) >= SLIM_MIN_BYTES:
+                    slims.append((record_id, _slim_blob(record)))
+                    big_ids.add(record_id)
                 count += 1
+                if len(slims) > 2000:
+                    conn.executemany("INSERT OR REPLACE INTO slim VALUES (?, ?)", slims)
+                    slims.clear()
                 if len(batch) > 20000:
                     conn.executemany("INSERT OR REPLACE INTO entries VALUES (?, ?, ?, ?, ?)", batch)
                     batch.clear()
@@ -236,6 +282,12 @@ class VulnDB:
             marks = ",".join("?" * len(chunk))
             conn.execute(f"DELETE FROM entries WHERE file = ? AND record_id IN ({marks})", (DELTA_FILE, *chunk))
             conn.execute(f"DELETE FROM records WHERE record_id IN ({marks})", chunk)
+        # 縮小版: この zip の記録の古い縮小版を消してから入れ直す（小さくなった記録の縮小版を残さない）
+        small = [rid for rid in record_ids_in_zip if rid not in big_ids]
+        for start in range(0, len(small), 500):
+            chunk = small[start:start + 500]
+            conn.execute(f"DELETE FROM slim WHERE record_id IN ({','.join('?' * len(chunk))})", chunk)
+        conn.executemany("INSERT OR REPLACE INTO slim VALUES (?, ?)", slims)
         now = _now()
         self._save_source(source, file=relative, url=url, updated_at=now, records=count, full_at=now, **extra)
         conn.commit()
@@ -264,11 +316,15 @@ class VulnDB:
             if not record_id:
                 continue
             conn.execute("DELETE FROM entries WHERE record_id = ?", (record_id,))
+            conn.execute("DELETE FROM slim WHERE record_id = ?", (record_id,))
+            self._slim_cache.pop(record_id, None)
             if record.get("withdrawn"):
                 conn.execute("DELETE FROM records WHERE record_id = ?", (record_id,))
                 continue
-            conn.execute("INSERT OR REPLACE INTO records VALUES (?, ?)",
-                         (record_id, json.dumps(record, ensure_ascii=False)))
+            data = json.dumps(record, ensure_ascii=False)
+            conn.execute("INSERT OR REPLACE INTO records VALUES (?, ?)", (record_id, data))
+            if len(data.encode("utf-8")) >= SLIM_MIN_BYTES:
+                conn.execute("INSERT OR REPLACE INTO slim VALUES (?, ?)", (record_id, _slim_blob(record)))
             rows = []
             for affected in record.get("affected") or []:
                 package = affected.get("package") or {}
@@ -540,9 +596,71 @@ class VulnDB:
                     if record_id in seen:
                         continue
                     seen.add(record_id)
-                    record = self._read(file, member)
+                    record = self._read_slim(record_id)
+                    if record is None:
+                        record = self._read(file, member)
                     if record is not None:
                         yield row_ecosystem, record
+
+    def ensure_slim(self) -> int:
+        """縮小版が無い索引（0.2.0 より前に作ったもの）に、手元のデータから縮小版を作る。作った件数を返す。
+
+        zip を取り直さずに済むよう、保存済みの zip と差分の記録から作る。64 KB 未満の記録は読まない。
+        差分で新しくなった記録は、zip の古い版ではなく差分の版から作る。
+        """
+        conn = self.connect()
+        if conn.execute("SELECT 1 FROM slim LIMIT 1").fetchone() is not None:
+            return 0
+        delta_ids = {row[0] for row in conn.execute("SELECT record_id FROM records")}
+        made = 0
+        for (file,) in conn.execute("SELECT DISTINCT file FROM sources WHERE file IS NOT NULL").fetchall():
+            path = self.dir / str(file)
+            if not path.is_file():
+                continue
+            with zipfile.ZipFile(path) as archive:
+                rows = []
+                for info in archive.infolist():
+                    if info.file_size < SLIM_MIN_BYTES or not info.filename.endswith(".json"):
+                        continue
+                    try:
+                        record = json.loads(archive.read(info))
+                    except ValueError:
+                        continue
+                    record_id = str(record.get("id") or info.filename)
+                    if record.get("withdrawn") or record_id in delta_ids:
+                        continue
+                    rows.append((record_id, _slim_blob(record)))
+                    if len(rows) >= 2000:
+                        conn.executemany("INSERT OR REPLACE INTO slim VALUES (?, ?)", rows)
+                        made += len(rows)
+                        rows.clear()
+                conn.executemany("INSERT OR REPLACE INTO slim VALUES (?, ?)", rows)
+                made += len(rows)
+        for record_id, data in conn.execute("SELECT record_id, data FROM records").fetchall():
+            if len(data.encode("utf-8")) >= SLIM_MIN_BYTES:
+                conn.execute("INSERT OR REPLACE INTO slim VALUES (?, ?)", (record_id, _slim_blob(json.loads(data))))
+                made += 1
+        conn.commit()
+        self._has_slim = None
+        return made
+
+    def _read_slim(self, record_id: str) -> dict | None:
+        """大きな記録の縮小版（無ければ None。古い索引には縮小版が無いので、そのときは元の記録を読む）。"""
+        if record_id in self._slim_cache:
+            self._slim_cache.move_to_end(record_id)
+            return self._slim_cache[record_id]
+        if self._has_slim is None:
+            self._has_slim = self.connect().execute("SELECT 1 FROM slim LIMIT 1").fetchone() is not None
+        if not self._has_slim:
+            return None
+        row = self.connect().execute("SELECT data FROM slim WHERE record_id = ?", (record_id,)).fetchone()
+        if row is None:
+            return None
+        record = json.loads(zlib.decompress(row[0]))
+        self._slim_cache[record_id] = record
+        if len(self._slim_cache) > 512:
+            self._slim_cache.popitem(last=False)
+        return record
 
     def _read(self, file: str, member: str) -> dict | None:
         key = (file, member)

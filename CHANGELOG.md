@@ -1,5 +1,15 @@
 # 変更履歴
 
+## 0.3.0（2026-11-27）
+
+### 追加
+- `run --previous <前回の出力フォルダ>`: 「前回との差分」シートと `report_changes.csv`。新たに影響あり / 解消 / 継続 / 今回の回収なし。
+- Excel の 1 シートの行数の上限（`xlsx_max_rows`、既定 10 万行）。超えた分は CSV にだけ出し、サマリに注意を出す。
+
+### 改善
+- Ubuntu の照合を速くした（実機の Ubuntu 24.04 を含む 4 環境で 349 秒 → 121 秒、結果は同じ）。大きな記録（カーネルの CVE など）の縮小版を索引に入れる。既存の索引には、次の `db-update` で縮小版を作る（初回のみ数分）。
+- `--resolve-hashes` を Maven Central に実際に接続して確かめた。
+
 ## 0.2.0（2026-11-26）
 
 実機（Windows 11、Windows Server、Ubuntu 24.04、Amazon Linux 2 / 2023）で回収から照合までを確かめ、現在の Grype と結果を比べた版です（[docs/COMPARISON.md](docs/COMPARISON.md)）。

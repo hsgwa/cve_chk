@@ -254,7 +254,8 @@ python -m vuln_triage run          --inventory-dir inventory --env-master env_ma
 | `--db-dir DIR` | 脆弱性データの置き場所（既定 `vulndb`） |
 | `--scanner osv / trivy / none` | CVE の照合方法（既定 `osv` = 手元の脆弱性データ） |
 | `--no-msrc` / `--offline` | Windows OS のビルド番号判定を行わない / キャッシュだけで行う |
-| `--resolve-hashes` | 名前の分からない jar を SHA-1 で Maven Central に照会 |
+| `--resolve-hashes` | 名前の分からない jar を SHA-1 で Maven Central に照会（送るのは SHA-1 だけ） |
+| `--previous DIR` | 前回の出力フォルダと比べ、「新たに影響あり」「解消」「継続」「今回の回収なし」を出す。`--out-dir` とは別のフォルダにする（例: 毎月 `out6-11`、`out6-12` に出して前月を指定） |
 
 ## 5. 出力
 
@@ -264,13 +265,16 @@ python -m vuln_triage run          --inventory-dir inventory --env-master env_ma
 |---|---|
 | サマリ | 件数の集計、注意事項、この結果の限界 |
 | 通達別一覧 | 1 行 = 通達 1 件。総合判定と、影響あり / 影響なし / 未使用 / 対象外 / 判定不能の環境名 |
+| 前回との差分 | `--previous` を指定したときだけ。1 行 = 環境 × 脆弱性 × パッケージの変化。前回の回収に無かった環境の行は「解消」ではなく「今回の回収なし」 |
 | 要更新パッケージ | 1 行 = 環境 × パッケージ。影響ありの脆弱性（通達と新規検出の両方）をまとめ、**すべてが直る版（修正版のうち最も新しい版）**、件数、最も厳しいランクと最も早い期限を出す。対応の作業はこのシートから始める |
 | 通達×環境 | 行 = 通達、列 = 環境の一覧表 |
 | 明細 | 1 行 = 通達 × 環境 × パッケージ。影響なし・未使用も含む全件（証跡） |
 | 新規検出（参考） | 通達には無いが脆弱性データとの照合で見つかった脆弱性 |
 | 収集状況 | 環境ごとの回収日時、回収ファイル、CVE 照合の可否、読めなかったフォルダ、走査範囲外で動いているプログラム |
 
-同じ内容の CSV（BOM 付き UTF-8）も `report_summary.csv`、`report_detail.csv`、`report_updates.csv`、`report_new_findings.csv` として出ます。
+同じ内容の CSV（BOM 付き UTF-8）も `report_summary.csv`、`report_detail.csv`、`report_updates.csv`、`report_new_findings.csv`、`report_changes.csv`（`--previous` のとき）として出ます。
+
+Excel の 1 シートには、ランク・期限の順で先頭 10 万行までを書きます（`config.yaml` の `xlsx_max_rows`。Excel の上限は約 104 万行）。超えた場合はサマリに注意が出ます。CSV には常に全件が出ます。
 
 ### 影響有無の意味
 
@@ -312,7 +316,7 @@ python -m vuln_triage run          --inventory-dir inventory --env-master env_ma
   - 実行ファイル自体（ruby・python・node のバイナリ、カーネルのイメージなど）の照合は行いません。
 - **Amazon Linux**: Amazon Linux 2 は core と extras の全トピック（kernel-5.4 / 5.10 / 5.15、nginx1、php8.x など 73 件）、Amazon Linux 2023 は core の情報を取得します。x86_64 の情報で、arm64 にも同じ版番号のため流用します。EMR 独自のパッケージは含みません。公式情報に CVSS が無いため、Debian のデータの同じ CVE から点数を引いています（見つからなければ「CVSS 不明」で Rank-C、備考に Amazon の深刻度を表示）。
 - **実機での確認**（[docs/COMPARISON.md](docs/COMPARISON.md) の「実機での確認」）: Windows 11（管理者でない実行、ARM64）での回収、Ubuntu 24.04 と Amazon Linux 2 / 2023 での回収（スクリプトと syft だけの両方）、`db-update` の全件取得と差分更新、MSRC に接続した Windows OS の判定を通して確かめました。Windows Server 2025（管理者）での回収と照合は CI で毎回確かめています（`.github/workflows/ci.yml`）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
-- **`--resolve-hashes`（Maven Central への照会）は、実際に接続した確認ができていません。**
+- **`--resolve-hashes`**: Maven Central に実際に接続し、名前の分からない jar（log4j-core 2.14.1 の SHA-1）を特定して影響ありと判定できることを確かめました。
 
 ## 7. Trivy を使う場合（任意）
 
