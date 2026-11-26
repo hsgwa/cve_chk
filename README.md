@@ -17,6 +17,7 @@
 | 文書 | 内容 |
 |---|---|
 | この README | セットアップ、回収、入力、実行、出力の読み方 |
+| [docs/ROLLOUT.md](docs/ROLLOUT.md) | **本番導入の計画。** 自動化の範囲、人の作業と頻度、本番投入前のチェックリスト、リスクと対策、判定できない範囲のまとめ |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | **本番で使う前に読む。** 本番前の確認、対象サーバーへの影響、回収物の扱い、対応の流れ、困ったとき |
 | [docs/DESIGN.md](docs/DESIGN.md) | 仕組み（データの取得、照合、判定の流れ） |
 | [docs/COMPARISON.md](docs/COMPARISON.md) | 他のツール（Trivy、Grype、OSV-Scanner）との比較と、実機での確認の結果 |
@@ -26,7 +27,7 @@
 
 ## 1. セットアップ（管理 PC）
 
-Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.3.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
+Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.4.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
 
 ```
 pip install -e .
@@ -79,7 +80,13 @@ python -m vuln_triage db-update --inventory-dir inventory    # 新しく出て�
 
 ### 毎日の自動実行（Windows のタスクスケジューラ）
 
-管理 PC で一度だけ次を実行すると、毎朝 6:30 に `db-update` を実行するタスクが登録されます（Windows 標準の機能だけを使います）。
+**照合とレポートまで毎日自動で行う場合**は `-Run -BaseDir <作業フォルダ>` で登録します（`scripts\daily_run.ps1`。作業フォルダの構成と手順は [docs/ROLLOUT.md](docs/ROLLOUT.md) の 2 章）。データの更新も含むので、下の `db-update` だけのタスクは不要です。
+
+```
+powershell -ExecutionPolicy Bypass -File scriptsegister_daily_task.ps1 -Run -BaseDir D:uln -NoPassword
+```
+
+データの更新だけを自動にする場合は、管理 PC で一度だけ次を実行すると、毎朝 6:30 に `db-update` を実行するタスクが登録されます（Windows 標準の機能だけを使います）。
 
 ```
 powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -InventoryDir D:\vuln\inventory
@@ -112,7 +119,9 @@ Trivy（`trivy.exe`）を使いたい場合は `--scanner trivy` で従来どお
 
 ### Linux（EC2、EMR の各ノード）
 
-持ち込むもの: `collectors/collect_linux.sh` と、[syft](https://github.com/anchore/syft/releases) の `syft_<版>_linux_amd64.tar.gz`（Graviton なら `linux_arm64`）。同じフォルダに置いて実行します。
+持ち込むもの: `collectors/collect_linux.sh` と、[syft](https://github.com/anchore/syft/releases) の `syft_<版>_linux_amd64.tar.gz`（Graviton なら `linux_arm64`）、同じリリースの `syft_<版>_checksums.txt`。同じフォルダに置いて実行します。
+
+- **チェックサムのファイルがあると、syft の tar.gz が配布元のものと同じかを SHA-256 で確かめます。** 一致しなければ syft を実行しません（改ざん・破損の恐れ）。ファイルが無いときは確かめずに実行し、レポートに注意が出ます。確かめられないときも実行しないようにするには `REQUIRE_SYFT_CHECKSUM=1` を付けます。
 
 ```
 sudo bash collect_linux.sh

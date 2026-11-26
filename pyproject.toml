@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vuln-triage"
-version = "0.3.0"
+version = "0.4.0"
 description = "オフライン環境のインベントリと会社公表の脆弱性リストを突き合わせるトリアージ CLI"
 requires-python = ">=3.10"
 license = "MIT-0"
