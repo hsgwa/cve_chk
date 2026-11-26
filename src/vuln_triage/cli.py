@@ -23,6 +23,22 @@ from .vulndb.scanner import scan_with_vulndb, stale_sources
 from .vulndb.store import VulnDB, VulnDBError
 
 
+def _safe_streams() -> None:
+    """表示できない文字で止まらないようにする。
+
+    英語版の Windows（cp1252）などでは、日本語の表示で UnicodeEncodeError になり、処理が途中で止まっていた
+    （Windows Server の CI で確認）。表示できない文字は ? に置き換える。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+_safe_streams()
+
+
 def _default_config() -> str | None:
     return "config.yaml" if Path("config.yaml").is_file() else None
 

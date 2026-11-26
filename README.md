@@ -84,6 +84,7 @@ powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Invent
 | `-DbDir` / `-Config` | 脆弱性データの置き場所 / 設定ファイル（省略時は既定） |
 | `-Python` | python.exe の場所（省略時は PATH から探す） |
 | `-RunWhetherLoggedOn` | ログオフ中も実行する（パスワードを尋ねられる）。省略時はログオン中のみ |
+| `-NoPassword` | ログオフ中も実行する。パスワードを保存しない（S4U）。管理者として開いた PowerShell で登録する。インターネットには出られるが、ネットワーク共有には接続できない |
 | `-Unregister` | 登録を削除する |
 
 - 実行内容は `scripts\daily_db_update.ps1` です。結果は `logs\db-update_<日付>.log` に残り、30 日より古いログは消えます。
@@ -114,6 +115,9 @@ sudo bash collect_linux.sh
 - NFS などネットワーク上の領域と、コンテナの保存領域は走査しません。
 - 走査範囲や除外は環境変数で変えられます（スクリプト冒頭のコメントを参照）。
 - EMR はクラスタが動いているうちに、マスター 1 台とコア 1 台で実行してください。
+- **既定で優先度を最低にして実行します**（`nice -n 19`、`ionice -c3`）。業務処理が優先され、その分だけ回収に時間がかかります。通常の優先度にするには `LOW_PRIORITY=0` を付けます。
+- syft が 3 時間で終わらなければ打ち切り、syft の失敗として記録します（`SYFT_TIMEOUT_SEC` で変更）。
+- サーバーへの影響と、本番の前に確かめることは [docs/OPERATIONS.md](docs/OPERATIONS.md) にあります。
 
 #### スクリプトを使わず、syft だけで回収する場合
 
@@ -151,6 +155,7 @@ powershell -ExecutionPolicy Bypass -File collect_win.ps1 -AllDrives
 ```
 
 - `out\<ホスト名>\` に `inventory.json` と `collect.log` ができます。
+- 既定で CPU の優先度を「通常以下」にして実行します（`-NormalPriority` で通常）。
 - 既定の走査対象は `Program Files`、`Program Files (x86)`、`ProgramData` です。**アプリを別の場所に置いている場合は `-ScanRoots` で指定するか `-AllDrives` を付けてください。**
 - 取得するもの: OS のビルド番号、適用済み KB、インストール済みソフト、exe / dll のバージョン情報、jar / war / ear の中身（入れ子も）、Python・npm・NuGet のパッケージ、実行中のプロセスの場所。
 
@@ -251,12 +256,13 @@ python -m vuln_triage run          --inventory-dir inventory --env-master env_ma
 |---|---|
 | サマリ | 件数の集計、注意事項、この結果の限界 |
 | 通達別一覧 | 1 行 = 通達 1 件。総合判定と、影響あり / 影響なし / 未使用 / 対象外 / 判定不能の環境名 |
+| 要更新パッケージ | 1 行 = 環境 × パッケージ。影響ありの脆弱性（通達と新規検出の両方）をまとめ、**すべてが直る版（修正版のうち最も新しい版）**、件数、最も厳しいランクと最も早い期限を出す。対応の作業はこのシートから始める |
 | 通達×環境 | 行 = 通達、列 = 環境の一覧表 |
 | 明細 | 1 行 = 通達 × 環境 × パッケージ。影響なし・未使用も含む全件（証跡） |
 | 新規検出（参考） | 通達には無いが脆弱性データとの照合で見つかった脆弱性 |
 | 収集状況 | 環境ごとの回収日時、回収ファイル、CVE 照合の可否、読めなかったフォルダ、走査範囲外で動いているプログラム |
 
-同じ内容の CSV（BOM 付き UTF-8）も `report_summary.csv`、`report_detail.csv`、`report_new_findings.csv` として出ます。
+同じ内容の CSV（BOM 付き UTF-8）も `report_summary.csv`、`report_detail.csv`、`report_updates.csv`、`report_new_findings.csv` として出ます。
 
 ### 影響有無の意味
 

@@ -702,3 +702,15 @@ def test_ubuntu_pro_only_fix_with_tilde_esm(tmp_path, config):
         return [f.cve_id for f in scan_with_vulndb([make_env(components=[c])], db, config)]
     assert scan("1.2-3") == ["CVE-2024-1111"]
     assert scan("1.2-4") == []
+
+
+def test_cli_does_not_crash_on_non_japanese_console(tmp_path):
+    """英語版 Windows（cp1252）など、日本語を表示できない出力先でも止まらない（Windows Server の CI で確認）。"""
+    import os
+    import subprocess
+    import sys
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+    for args in (["--help"], ["db-update", "--db-dir", str(tmp_path / "db"), "--list"]):
+        result = subprocess.run([sys.executable, "-m", "vuln_triage", *args], capture_output=True, env=env)
+        assert result.returncode == 0, result.stderr.decode("cp1252", "replace")
+        assert b"UnicodeEncodeError" not in result.stderr
