@@ -5,6 +5,7 @@
 # 持ち込むもの（同じフォルダに置く）:
 #   collect_linux.sh
 #   syft_<版>_linux_amd64.tar.gz   （Graviton なら linux_arm64 版）
+#   syft_<版>_checksums.txt        （同じリリースのチェックサム。あれば tar.gz の SHA-256 を確かめる）
 #
 # 実行:   sudo bash collect_linux.sh
 # 出力:   ./out/<ホスト名>/cdx_syft.json   syft が作る CycloneDX SBOM
@@ -18,7 +19,8 @@
 #   OUT_DIR         出力先（既定 ./out/<ホスト名>）
 #   WORK_DIR        syft の展開先（既定 ./.syft_work。noexec の場所は不可）
 #   SYFT_TARBALL    syft の tar.gz の場所（既定 スクリプトと同じフォルダから自動選択）
-#   SYFT_BIN        展開済みの syft を直接指定する場合
+#   SYFT_BIN        展開済みの syft を直接指定する場合（チェックサムは確かめない）
+#   REQUIRE_SYFT_CHECKSUM 1 ならチェックサムを確かめられないとき syft を実行しない（既定 0。一致しないときは常に実行しない）
 #   LOW_PRIORITY    1（既定）なら CPU とディスクの優先度を最低にして実行する（nice -n 19、ionice -c3）。0 で無効
 #   SYFT_TIMEOUT_SEC syft の打ち切り時間（秒。既定 10800 = 3 時間）。打ち切ると syft の失敗として記録する
 # =============================================================================
@@ -136,7 +138,7 @@ esac
 for pattern in $EXTRA_EXCLUDES; do EXCLUDES+=("$pattern"); done
 
 # ---- syft --------------------------------------------------------------------
-SYFT_STATUS="failed"; SYFT_REASON=""; SYFT_VERSION=""; SYFT_EXIT=""
+SYFT_STATUS="failed"; SYFT_REASON=""; SYFT_VERSION=""; SYFT_EXIT=""; SYFT_CHECKSUM="unverified"
 SBOM="$OUT_DIR/cdx_syft.json"
 rm -f "$SBOM"
 
@@ -146,9 +148,32 @@ if [ -z "$SYFT_BIN" ]; then
     aarch64|arm64) SYFT_ARCH="arm64" ;;
     *) SYFT_ARCH="$ARCH" ;;
   esac
-  TARBALL="${SYFT_TARBALL:-$(ls "$SCRIPT_DIR"/syft_*_linux_"$SYFT_ARCH".tar.gz 2>/dev/null | sort | tail -n 1)}"
+  # 版の順で最も新しいもの（文字の順だと 1.9 が 1.18 より後になる）
+  TARBALL="${SYFT_TARBALL:-$(ls "$SCRIPT_DIR"/syft_*_linux_"$SYFT_ARCH".tar.gz 2>/dev/null | sort -V 2>/dev/null | tail -n 1)}"
+  if [ -n "$TARBALL" ] && [ -r "$TARBALL" ]; then
+    # ---- syft の tar.gz の真正性（配布元のチェックサムと比べる） ----
+    TAR_NAME="$(basename "$TARBALL")"
+    TAR_VERSION="${TAR_NAME#syft_}"; TAR_VERSION="${TAR_VERSION%%_linux_*}"
+    SUMS="${SYFT_CHECKSUMS:-$(dirname "$TARBALL")/syft_${TAR_VERSION}_checksums.txt}"
+    if [ -r "$SUMS" ] && command -v sha256sum >/dev/null 2>&1; then
+      EXPECTED="$(awk -v f="$TAR_NAME" '$2 == f || $2 == "*" f {print $1; exit}' "$SUMS")"
+      ACTUAL="$(sha256sum "$TARBALL" | awk '{print $1}')"
+      if [ -n "$EXPECTED" ] && [ "$EXPECTED" = "$ACTUAL" ]; then
+        SYFT_CHECKSUM="ok"
+        log "syft の tar.gz のチェックサムが一致しました（SHA-256、$(basename "$SUMS")）"
+      else
+        SYFT_CHECKSUM="mismatch"
+      fi
+    else
+      log "注意: syft の tar.gz のチェックサムを確かめていません（$SUMS がありません）。配布元の syft_${TAR_VERSION}_checksums.txt を同じフォルダに置くと確かめます"
+    fi
+  fi
   if [ -z "$TARBALL" ] || [ ! -r "$TARBALL" ]; then
     SYFT_REASON="syft の tar.gz が見つかりません（syft_*_linux_${SYFT_ARCH}.tar.gz をスクリプトと同じフォルダに置く）"
+  elif [ "$SYFT_CHECKSUM" = "mismatch" ]; then
+    SYFT_REASON="syft の tar.gz のチェックサムが配布元と一致しません（改ざん・破損の恐れがあるため実行しません）: $TARBALL"
+  elif [ "$SYFT_CHECKSUM" != "ok" ] && [ "${REQUIRE_SYFT_CHECKSUM:-0}" = "1" ]; then
+    SYFT_REASON="syft の tar.gz のチェックサムを確かめられないため実行しません（REQUIRE_SYFT_CHECKSUM=1）"
   else
     rm -rf "$WORK_DIR"; mkdir -p "$WORK_DIR"
     if tar -xzf "$TARBALL" -C "$WORK_DIR" syft 2>>"$LOG"; then
@@ -302,6 +327,7 @@ cat > "$OUT_DIR/os_info.json" <<JSON
     "status": "$SYFT_STATUS",
     "version": "$(json_escape "$SYFT_VERSION")",
     "exit_code": "$(json_escape "$SYFT_EXIT")",
+    "checksum": "$SYFT_CHECKSUM",
     "reason": "$(json_escape "$SYFT_REASON")"
   },
   "sections": {

@@ -111,6 +111,8 @@ def test_powershell_array_parameters_are_split(script):
     """powershell -File で -X 'a','b' と渡すと、配列ではなく 1 つの文字列 'a,b' になる（Windows 実機で確認した
     -ScanRoots の不具合）。[string[]] の引数は、カンマで分け直していること。"""
     text = script.read_text(encoding="utf-8-sig")
-    for name in re.findall(r"\[string\[\]\]\s*\$(\w+)", text):
+    # スクリプトの引数（先頭の param ブロック）だけを見る。関数の引数は -File を通らない
+    block = re.search(r"^param\((.*?)^\)", text, re.MULTILINE | re.DOTALL)
+    for name in re.findall(r"\[string\[\]\]\s*\$(\w+)", block.group(1) if block else ""):
         assert re.search(rf"\${name}\s*\|\s*ForEach-Object\s*\{{\s*\$_\s*-split\s*'\[,", text), \
             f"{script.name}: -{name} をカンマで分けていない"

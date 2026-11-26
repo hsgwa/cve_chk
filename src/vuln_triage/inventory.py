@@ -363,6 +363,9 @@ def load_osinfo(data: dict, env: EnvInventory, source: str) -> None:
     env.sections["syft"] = SectionStatus(status=status, reason=str(syft.get("reason") or ""))
     if status != "ok":
         env.warnings.append(f"{source}: syft による SBOM 作成に失敗しています（{syft.get('reason') or status}）")
+    elif syft.get("checksum") == "unverified":
+        env.warnings.append(f"{source}: 回収に使った syft のチェックサムを確かめていません"
+                            "（syft_<版>_checksums.txt を一緒に持ち込むと確かめます）")
     if env.emr_release:
         env.components.append(Component(
             name="amazon-emr", version=env.emr_release.removeprefix("emr-"), kind=KIND_CUSTOM,

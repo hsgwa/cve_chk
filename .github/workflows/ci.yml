@@ -2,8 +2,10 @@
 #
 # - tests:        unit tests and static checks on Windows and Linux, oldest and newest supported Python
 # - windows-e2e:  real collection with collect_win.ps1 on a Windows Server runner (as administrator,
-#                 Windows PowerShell 5.1), matching, and registering/running/removing the daily task
-# - linux-e2e:    real collection with collect_linux.sh (syft) in Amazon Linux 2023 and Ubuntu containers,
+#                 Windows PowerShell 5.1), matching, and the daily automatic run (daily_run.ps1) registered,
+#                 run twice and removed through the task scheduler
+# - linux-e2e:    real collection with collect_linux.sh in Amazon Linux 2023 and Ubuntu containers with
+#                 syft 1.18.1 and the newest syft (checksums verified, a tampered tarball refused),
 #                 then matching against freshly downloaded vulnerability data
 name: ci
 on:
@@ -98,25 +100,44 @@ jobs:
           print("matching OK")
           EOF
 
-      - name: Register, run and remove the daily update task
+      - name: Register, run and remove the daily automatic run (daily_run.ps1 through the task scheduler)
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -DbDir C:\e2e\vulndb -TaskName 'vuln-triage ci' -NoPassword
+          $base = 'C:\e2e\daily'
+          New-Item -ItemType Directory -Force "$base\advisory", "$base\inventory" | Out-Null
+          Copy-Item -Recurse C:\e2e\inventory\win-server "$base\inventory\"
+          Copy-Item C:\e2e\advisory.csv "$base\advisory\advisory-2026-11.csv"
+          Copy-Item C:\e2e\env_master.csv "$base\env_master.csv"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Run -BaseDir $base -DbDir C:\e2e\vulndb -TaskName 'vuln-triage ci' -NoPassword
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          Start-ScheduledTask -TaskName 'vuln-triage ci'
-          $deadline = (Get-Date).AddMinutes(20)
-          do { Start-Sleep 10; $task = Get-ScheduledTask -TaskName 'vuln-triage ci' } while ($task.State -eq 'Running' -and (Get-Date) -lt $deadline)
-          $info = Get-ScheduledTaskInfo -TaskName 'vuln-triage ci'
-          Write-Host "state=$($task.State) result=$($info.LastTaskResult) last=$($info.LastRunTime)"
-          Get-ChildItem logs -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "== $($_.Name)"; Get-Content $_.FullName -Encoding utf8 | Select-Object -Last 15 }
+          function Invoke-Task {
+            Start-ScheduledTask -TaskName 'vuln-triage ci'
+            $deadline = (Get-Date).AddMinutes(30)
+            do { Start-Sleep 10; $task = Get-ScheduledTask -TaskName 'vuln-triage ci' } while ($task.State -eq 'Running' -and (Get-Date) -lt $deadline)
+            $info = Get-ScheduledTaskInfo -TaskName 'vuln-triage ci'
+            Write-Host "state=$($task.State) result=$($info.LastTaskResult) last=$($info.LastRunTime)"
+            return $info.LastTaskResult
+          }
+          $first = Invoke-Task
+          Start-Sleep 2
+          $second = Invoke-Task
+          Get-ChildItem "$base\logs" | ForEach-Object { Write-Host "== $($_.Name)"; Get-Content $_.FullName -Encoding utf8 | Select-Object -Last 25 }
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Unregister -TaskName 'vuln-triage ci'
-          if ($info.LastTaskResult -ne 0) { throw "the task failed: $($info.LastTaskResult)" }
+          if ($first -ne 0 -or $second -ne 0) { throw "the task failed: $first / $second" }
+          $latest = (Get-Content "$base\reports\latest.txt").Trim()
+          $reports = @(Get-ChildItem "$base\reports" -Directory)
+          if ($reports.Count -ne 2) { throw "expected 2 report folders, got $($reports.Count)" }
+          if (-not (Test-Path "$base\reports\$latest\report_changes.csv")) { throw "the second run did not compare with the first" }
+          Write-Host "daily run OK: $($reports.Name -join ', ') latest=$latest"
 
   linux-e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        # the version used so far, and the newest release (catches SBOM format changes in new syft releases)
+        syft: ["1.18.1", "latest"]
     runs-on: ubuntu-24.04
-    env:
-      SYFT_VERSION: "1.18.1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -124,15 +145,33 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install -e .
 
-      - name: Download syft and a vulnerable jar
+      - name: Download syft (with its checksums) and a vulnerable jar
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download "v${SYFT_VERSION}" -R anchore/syft -p "syft_${SYFT_VERSION}_linux_amd64.tar.gz" -D collectors
+          version="${{ matrix.syft }}"
+          if [ "$version" = latest ]; then version=$(gh release view -R anchore/syft --json tagName -q .tagName); version="${version#v}"; fi
+          echo "syft $version"
+          gh release download "v${version}" -R anchore/syft -p "syft_${version}_linux_amd64.tar.gz" -p "syft_${version}_checksums.txt" -D collectors
           mkdir -p testapp
           jar=org/apache/logging/log4j/log4j-core/2.14.1/log4j-core-2.14.1.jar
           curl -sSfL --retry 3 --retry-delay 10 --retry-all-errors -o testapp/log4j-core-2.14.1.jar "https://repo1.maven.org/maven2/$jar" \
             || curl -sSfL --retry 3 -o testapp/log4j-core-2.14.1.jar "https://maven-central.storage-download.googleapis.com/maven2/$jar"
+
+      - name: A tampered syft tarball is refused
+        run: |
+          mkdir -p /tmp/tamper && cp collectors/collect_linux.sh collectors/syft_*_checksums.txt /tmp/tamper/
+          tar=$(ls collectors/syft_*_linux_amd64.tar.gz); cp "$tar" /tmp/tamper/
+          printf 'x' >> "/tmp/tamper/$(basename "$tar")"
+          set +e; OUT_DIR=/tmp/tamper/out LOW_PRIORITY=0 SCAN_ROOT=/tmp/tamper bash /tmp/tamper/collect_linux.sh; code=$?; set -e
+          cat /tmp/tamper/out/collect.log
+          python3 - <<'EOF'
+          import json
+          info = json.load(open("/tmp/tamper/out/os_info.json", encoding="utf-8"))
+          assert info["syft"]["checksum"] == "mismatch" and info["syft"]["status"] == "failed", info["syft"]
+          print("tampered tarball refused:", info["syft"]["reason"])
+          EOF
+          test "$code" -eq 3
 
       - name: Collect in Amazon Linux 2023 and Ubuntu 24.04 containers
         run: |
@@ -156,6 +195,7 @@ jobs:
               info = json.loads((d / "os_info.json").read_text(encoding="utf-8"))
               assert info["completed"] and info["syft"]["status"] == "ok", (d.name, info["syft"])
               assert info["low_priority"] is True and isinstance(info["duration_sec"], int), info
+              assert info["syft"]["checksum"] == "ok", info["syft"]
               sbom = json.loads((d / "cdx_syft.json").read_text(encoding="utf-8"))
               assert any("log4j-core" in c.get("name", "") for c in sbom["components"]), d.name
               print(d.name, info["os"]["pretty_name"], len(sbom["components"]), "components", info["duration_sec"], "s")
@@ -180,7 +220,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: linux-e2e-report
+          name: linux-e2e-report-${{ matrix.syft }}
           path: |
             inventory/
             report/

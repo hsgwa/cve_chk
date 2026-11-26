@@ -196,3 +196,17 @@ def test_elf_package_notes_duplicating_rpm_db_are_not_scanned(tmp_path):
     env = load_env_dir(tmp_path / "e")
     scannable = {(c.name, c.found_by.split("-")[0]) for c in env.components if c.scannable}
     assert scannable == {("openssl-libs", "rpm"), ("tar", "rpm"), ("mytool", "elf")}   # rpm DB に無いものは残す
+
+
+def test_osinfo_warns_when_syft_checksum_was_not_verified(examples, tmp_path):
+    base = json.loads((examples / "inventory" / "batch-emr" / "os_info.json").read_text(encoding="utf-8"))
+    for checksum, warned in (("ok", False), ("unverified", True), (None, False)):   # None = 古い回収スクリプト
+        data = json.loads(json.dumps(base))
+        data["syft"]["status"] = "ok"
+        if checksum is None:
+            data["syft"].pop("checksum", None)
+        else:
+            data["syft"]["checksum"] = checksum
+        write(tmp_path / checksum.__str__() / "os_info.json", data)
+        env = load_env_dir(tmp_path / checksum.__str__())
+        assert any("チェックサム" in w for w in env.warnings) == warned, (checksum, env.warnings)
