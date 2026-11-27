@@ -1,24 +1,24 @@
 # 脆弱確認（zk）の仕組み
 
-この文書は、現在のコードがどう動くかを説明します。概要は [README](https://github.com/hsgwa/cve_chk/blob/main/README.md)、使い方は [USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md)、設計の経緯は [PLAN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/PLAN.md)、不具合の記録は [DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md)、他ツールとの比較は [COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md) にあります。
+この文書は、現在のコードがどう動くかを説明します。概要は [README](https://github.com/hsgwa/cve_chk/blob/main/README.md)、使い方は [docs/usage/](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/README.md)、設計の経緯は [PLAN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/PLAN.md)、不具合の記録は [DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md)、他ツールとの比較は [COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md) にあります。
 
 ## 1. 全体の流れ
 
 ![全体の流れ: 対象マシンの回収スクリプトが出した回収物を管理 PC に置き、zk update が脆弱性データを取得して索引を作り、zk check が 6 段階（読み込み、PURL 付け、照合、Windows OS の判定、判定、出力）でレポートを出す](https://github.com/hsgwa/cve_chk/raw/main/docs/images/pipeline.drawio.png)
 
-管理 PC で外部に接続するのは次の 3 つだけです。`check` が使う脆弱性データは `update` で取得済みのものだけです。
+管理 PC で外部に接続するのは次の 3 つだけです。`zk check` が使う脆弱性データは `zk update` で取得済みのものだけです。
 
 | 接続先 | 使う処理 | 省略する方法 |
 |---|---|---|
-| OSV.dev（`osv-vulnerabilities.storage.googleapis.com`）、Amazon Linux の公式リポジトリ | `update` | `update --import 名前=ZIP` で手元の zip を取り込む |
-| MSRC（`api.msrc.microsoft.com`） | `check`（Windows OS の判定） | `--offline`（キャッシュだけ使う）、`--no-msrc` |
-| Maven Central の検索 | `check --resolve-hashes` | 指定しない（既定） |
+| OSV.dev（`osv-vulnerabilities.storage.googleapis.com`）、Amazon Linux の公式リポジトリ | `zk update` | `zk update --import 名前=ZIP` で手元の zip を取り込む |
+| MSRC（`api.msrc.microsoft.com`） | `zk check`（Windows OS の判定） | `--offline`（キャッシュだけ使う）、`--no-msrc` |
+| Maven Central の検索 | `zk check --resolve-hashes` | 指定しない（既定） |
 
 ## 2. モジュール構成
 
 | ファイル | 役割 |
 |---|---|
-| `cli.py` | コマンド `update` / `check` / `preview` / `export-sbom` |
+| `cli.py` | コマンド `zk update` / `zk check` / `zk preview` / `zk export-sbom` |
 | `config.py` | `config.yaml` の読み込みと既定値 |
 | `models.py` | データ構造（`Component`、`EnvInventory`、`Advisory`、`Finding`、`Verdict`）と判定の値 |
 | `inventory.py` | 回収ファイルの形式判別と読み込み、環境マスタ |
@@ -38,7 +38,7 @@
 | `verdict.py` | 通達 × 環境 の判定 |
 | `report/tables.py`、`report/writers.py` | 表の組み立てと、Excel / CSV / 標準出力への書き出し |
 | `trivy_runner.py` | Trivy を使う場合の呼び出し（任意） |
-| `archive_scan.py` | `scan-file`: zip / jar / war / ear / whl（と展開したフォルダ）をメモリ上で読み、入れ子の jar もたどって Java・Python・npm・NuGet のライブラリを探し、`inventory.json` の形（OS は `archive`）で書き出す |
+| `archive_scan.py` | `zk scan-file`: zip / jar / war / ear / whl（と展開したフォルダ）をメモリ上で読み、入れ子の jar もたどって Java・Python・npm・NuGet のライブラリを探し、`inventory.json` の形（OS は `archive`）で書き出す |
 | `maven_lookup.py` | jar の SHA-1 から Maven の座標を調べる（任意） |
 
 ## 3. 回収と読み込み
@@ -69,7 +69,7 @@ CycloneDX か `inventory.json` が 1 つでもあれば「全体を回収した�
 
 ### 会社公表リストの読み込み（`advisory.py`）
 
-見出しの対応（`advisory_input.columns`）で列を決め、1 行を 1 件の通達にします。1 セルに複数の CVE があれば CVE ごとに分けます。読み落としの恐れがあるものは警告にします（`check` の画面とサマリシート、`preview`）。
+見出しの対応（`advisory_input.columns`）で列を決め、1 行を 1 件の通達にします。1 セルに複数の CVE があれば CVE ごとに分けます。読み落としの恐れがあるものは警告にします（`zk check` の画面とサマリシート、`zk preview`）。
 
 | 読み落としの恐れ | 扱い |
 |---|---|
@@ -92,7 +92,7 @@ syft の SBOM は最初から PURL を持っています。Windows の回収デ�
 | Amazon Linux 2 / 2023 | 公式リポジトリの `updateinfo.xml` を OSV 形式に変換 | `vulndb/amazon/amazon-linux-<版>.zip` |
 | Amazon Linux 2 の extras（kernel-5.10 など 73 トピック） | 同上（トピックごと） | `vulndb/amazon/amazon-linux-2-extras-<トピック>.zip` |
 
-`update --inventory-dir` は回収データを読み、必要なデータ（`ecosystems.needed_sources`）を自動で選びます。OS パッケージがあるときは、CVSS を引くために `score_sources`（既定 Debian）も取ります。2 回目以降に引数なしで実行すると、取得済みのデータをすべて更新します。
+`zk update --inventory-dir` は回収データを読み、必要なデータ（`ecosystems.needed_sources`）を自動で選びます。OS パッケージがあるときは、CVSS を引くために `score_sources`（既定 Debian）も取ります。2 回目以降に引数なしで実行すると、取得済みのデータをすべて更新します。
 
 ### 索引（`vulndb/index.sqlite`）
 
@@ -111,8 +111,8 @@ syft の SBOM は最初から PURL を持っています。Windows の回収デ�
 
 - **OSV.dev**: 普段は `modified_id.csv`（更新日時と記録 ID の一覧）を取り、前回の `cursor` より新しい記録だけを 1 件ずつ取り直して `records` に入れます。すべて取れてから反映するので、途中で失敗しても前回の内容が残ります。次のどれかに当たると `all.zip` を全件取り直します: 初回、`--full`、前回の全件取得から `full_refresh_days`（既定 7 日）以上、差分が `max_delta_records`（既定 3000 件）超、保存ファイルが無い。全件を取り直すと、差分で持っていた同じ記録は消します。
 - **Amazon Linux**: ミラー一覧から `repomd.xml` を引き、updateinfo のチェックサムが前回と同じなら取得を省きます。CDN に届かない環境向けに、ミラー一覧と同じホストの同じパスも試します。
-- 失敗したデータは前回の内容のまま残り、`update` は終了コード 1 を返します。
-- `check` は、最終確認から `max_age_days`（既定 1 日）を超えたデータがあると警告します。
+- 失敗したデータは前回の内容のまま残り、`zk update` は終了コード 1 を返します。
+- `zk check` は、最終確認から `max_age_days`（既定 1 日）を超えたデータがあると警告します。
 
 ### Amazon Linux の変換
 
@@ -124,7 +124,7 @@ Amazon の公式情報には CVSS がありません。同じ CVE の点数を�
 
 ### 系統の分類（`vulndb/coverage.py`）
 
-データに現れる系統（`Ubuntu:22.04:LTS`、`Red Hat:enterprise_linux:9::appstream` など）は、すべて「照合に使う」か「理由があって使わない」に分類してあります。どちらにも当たらない系統が現れると、`update` が警告します。データ提供元が新しい系統を足したときに見落としに気づくためです。使わない系統は [DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) の 4 章にあります。
+データに現れる系統（`Ubuntu:22.04:LTS`、`Red Hat:enterprise_linux:9::appstream` など）は、すべて「照合に使う」か「理由があって使わない」に分類してあります。どちらにも当たらない系統が現れると、`zk update` が警告します。データ提供元が新しい系統を足したときに見落としに気づくためです。使わない系統は [DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) の 4 章にあります。
 
 ## 5. 照合（`vulndb/scanner.py`、`vulndb/ecosystems.py`）
 
@@ -159,7 +159,7 @@ Amazon の公式情報には CVSS がありません。同じ CVE の点数を�
 
 **Ubuntu Pro**: 通常の系統の情報があればそれだけを使います。Pro（ESM）の系統にしか情報が無いときも版番号で判定します。加えて、修正版から esm の印（`+esm1`、`~esm2`）を外した版と同じ版を入れていれば、影響ありにします（Pro の修正を含まない。`~esm` は番号の比較で通常の版より小さくなるため、番号の比較だけでは修正済みに見える）。備考に「修正版は Ubuntu Pro（ESM）でのみ提供」と出します。以前は版番号によらず影響ありとしていましたが、Livepatch の告知（LSN）を修正済みの新しいカーネルにも当てはめて大量に誤検出したため改めました。
 
-**縮小版**: 64 KB 以上の記録（Ubuntu のカーネルの CVE。カーネルの系統ごとに 277 項目が並び、1 件 0.5 MB 前後）は、照合に使う項目だけを残した縮小版を zlib で圧縮して索引（`slim` テーブル）に入れ、照合ではこちらを読みます。`versions`（影響のある版の列挙）は、範囲（ECOSYSTEM / SEMVER）の無い項目だけ残します。0.2.0 より前の索引には縮小版が無いので、`update` の実行時に手元のデータから作ります。
+**縮小版**: 64 KB 以上の記録（Ubuntu のカーネルの CVE。カーネルの系統ごとに 277 項目が並び、1 件 0.5 MB 前後）は、照合に使う項目だけを残した縮小版を zlib で圧縮して索引（`slim` テーブル）に入れ、照合ではこちらを読みます。`versions`（影響のある版の列挙）は、範囲（ECOSYSTEM / SEMVER）の無い項目だけ残します。0.2.0 より前の索引には縮小版が無いので、`zk update` の実行時に手元のデータから作ります。
 
 **評価の使い回し**: Ubuntu のカーネルは 1 つのソースパッケージに数千件（1 件 0.5 MB 前後）の記録があり、同じソースのバイナリパッケージが 10 個前後あります。（系統、パッケージ名、版）が同じなら評価の結果を使い回します。
 
@@ -255,7 +255,7 @@ CVE だけの通達で何も当たらないときは、照合できたパッケ�
 
 | 方法 | 内容 |
 |---|---|
-| `pytest` | 単体テストと静的な検査（`tests/test_static_checks.py`）。PURL の読み取りは `purl.py` だけか、版の比較の入口は決まった場所だけか、記録の評価でパッケージ名を確かめているか、PowerShell の誤りやすい書き方が無いか、保存ファイル名が Windows で使えるか、`update` のオプションの組み合わせ |
+| `pytest` | 単体テストと静的な検査（`tests/test_static_checks.py`）。PURL の読み取りは `purl.py` だけか、版の比較の入口は決まった場所だけか、記録の評価でパッケージ名を確かめているか、PowerShell の誤りやすい書き方が無いか、保存ファイル名が Windows で使えるか、`zk update` のオプションの組み合わせ |
 | `tools/audit_vulndb.py` | 実データの監査。系統の分類（A）、extras の網羅（B）、版の比較規則と範囲の順序（C）、照合結果の不変条件（D1〜D5）。問題があれば終了コード 1 |
 | 4 ツール比較 | 同じ SBOM を Trivy・Grype・OSV-Scanner にかけて比べる（[COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md)）。データ源や判定を変えたら再実行する |
 

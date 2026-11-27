@@ -1,5 +1,12 @@
 # 変更履歴
 
+## 未リリース
+
+### 変更
+- 使い方の文書を `docs/usage/` に分けた（準備、回収、zip・jar の調べ方、ファイルと形式、調査の実行、レポートの読み方）。開発は `docs/DEVELOPMENT.md`。重複と冗長な説明を削った。
+- 文書のコマンドの書き方を `zk <コマンド>`（ツールのフォルダで実行）と作業フォルダ `D:\vuln` にそろえた。
+- インストール不要の配布物にサンプル（`examples/`）を入れた。zip だけで動作確認ができる。
+
 ## 0.9.0（2026-11-27）
 
 ### 追加
@@ -32,14 +39,14 @@
 - 対象マシンでは、回収スクリプトを置いたフォルダの中だけに書き込むようにした（Linux の syft の一時ファイル・キャッシュも含む）。回収後にフォルダを消せば元の状態に戻る。実行前とフォルダ削除後で差が無いことを CI で確かめる（Amazon Linux 2023・Ubuntu 24.04 はファイルシステム全体、Windows Server はプロファイル・一時フォルダ・ProgramData・インストール済みソフト・サービス・タスク）。
 - 回収スクリプトは、出力先の空きが 500 MB 未満なら何も書かずに止める（終了コード 4）。Linux の syft にメモリの目安（`SYFT_MEMORY_LIMIT`、既定 1 GiB）。
 - 修正: [docs/DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) の #45〜#47（Linux の作業フォルダの削除、Windows のファイルの開き方、syft の一時ファイルの置き場所）。
-- 管理 PC のアンインストールの手順（[docs/USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の 9 章）。
+- 管理 PC のアンインストールの手順（[docs/usage/setup.md](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/setup.md)）。
 - 文書の図を draw.io の図（`docs/images/*.drawio.png`。図のデータを埋め込んだ PNG で、draw.io でそのまま編集できる）にした。全体の構成、処理の流れ、照合と判定の仕組み、仕組みの全体の流れの 4 枚。
 
 ## 0.5.0（2026-11-27）
 
 ### 変更
 - 調査は都度スクリプトを実行する形にした。`scripts/daily_run.ps1` を `scripts/run_check.ps1` に改名し（データの更新 → 照合 → レポート、前回との差分つき）、タスクスケジューラへの登録（`register_daily_task.ps1`）とデータの更新だけのスクリプト（`daily_db_update.ps1`）を削除した。
-- README を概要（特徴、用語、構成と仕組みの図、処理の流れ）だけにし、使い方を [docs/USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) に移した。図は、どの表示環境でも崩れない文字の図にした。
+- README を概要（特徴、用語、構成と仕組みの図、処理の流れ）だけにし、使い方を [docs/usage/](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/README.md) に移した。図は、どの表示環境でも崩れない文字の図にした。
 
 ## 0.4.0（2026-11-27）
 

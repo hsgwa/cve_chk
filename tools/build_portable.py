@@ -1,4 +1,4 @@
-"""インストール不要の配布物（ポータブル版）を作る。
+r"""インストール不要の配布物（ポータブル版）を作る。
 
     python tools/build_portable.py --out dist [--python-embed python-3.13.5-embed-amd64.zip --name windows-x64]
 
@@ -115,18 +115,18 @@ def main() -> None:
     (folder / "scripts").mkdir()
     shutil.copy2(ROOT / "scripts" / "check_all.ps1", folder / "scripts")
     shutil.copytree(ROOT / "collectors", folder / "collectors")
+    shutil.copytree(ROOT / "examples", folder / "examples", ignore=shutil.ignore_patterns("*.py", "__pycache__"))
     for file in ("config.yaml", "LICENSE"):
         shutil.copy2(ROOT / file, folder)
     (folder / "THIRD_PARTY_LICENSES.txt").write_text(
         "同梱している依存ライブラリと Python のライセンス\n\n" + "\n\n".join(licenses), encoding="utf-8")
     (folder / "README.txt").write_text(
         "脆弱確認（zk）" + version() + "\n\n"
-        "インストール不要です。このフォルダを置いて、ここで次を実行します（Windows）。\n"
-        "  zk.cmd update             脆弱性データを最新にする\n"
-        "  zk.cmd check --help       照合してレポートを出す\n"
+        "インストール不要です。このフォルダで次を実行します（PowerShell では .\\zk）。\n"
+        "  zk update --inventory-dir D:\\vuln\\inventory     脆弱性データを取得する\n"
         "  powershell -ExecutionPolicy Bypass -File scripts\\check_all.ps1 -BaseDir D:\\vuln\n"
         "要らなくなったら、このフォルダごと消します。\n\n"
-        "使い方: https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md\n", encoding="utf-8")
+        "使い方: https://github.com/hsgwa/cve_chk/blob/main/docs/usage/README.md\n", encoding="utf-8")
 
     zip_path = shutil.make_archive(str(out / name), "zip", out, name)
     print(folder)

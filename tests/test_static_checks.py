@@ -139,7 +139,7 @@ def test_markdown_links_are_absolute_and_exist():
     このリポジトリへのリンクは、指すファイルが実在すること。"""
     import re
     base = "https://github.com/hsgwa/cve_chk/"
-    docs = [ROOT / "README.md", ROOT / "CHANGELOG.md", *sorted((ROOT / "docs").glob("*.md"))]
+    docs = [ROOT / "README.md", ROOT / "CHANGELOG.md", *sorted((ROOT / "docs").rglob("*.md"))]
     for md in docs:
         for target in re.findall(r"\]\(([^)\s]+)\)", md.read_text(encoding="utf-8")):
             if target.startswith("#") or target.startswith("mailto:"):

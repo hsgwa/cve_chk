@@ -1,6 +1,6 @@
 # 脆弱確認（zk）
 
-コマンド: `zk`（パッケージ名 `zeijaku-kakunin`）。`zk update` で脆弱性データを最新にし、`zk check` で照合してレポートを出します。
+コマンド: `zk`。`zk update` で脆弱性データを最新にし、`zk check` で照合してレポートを出します。
 
 会社が公表した脆弱性の通達（Excel）ごとに、**社内のどのサーバーが影響を受けるか**を判定し、社内ランクと対応期限をつけてレポートにするツールです。インターネットにつながらないサーバー（AWS EC2 / EMR / Lambda、Linux、Windows）を対象にします。
 
@@ -85,11 +85,12 @@
 
 | 文書 | 内容 |
 |---|---|
-| [docs/USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) | **使い方。** セットアップ、回収、入力ファイル、実行、レポートの読み方 |
+| [docs/usage/](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/README.md) | **使い方。** 管理 PC の準備、回収、ファイルと形式、調査の実行、レポートの読み方 |
 | [docs/ROLLOUT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/ROLLOUT.md) | **本番導入の計画。** ツールと人の分担、人の作業と頻度、本番投入前のチェックリスト、リスクと対策、判定できないもの |
 | [docs/OPERATIONS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/OPERATIONS.md) | 運用の手引き。本番前の確認、対象マシンへの影響、回収物の扱い、対応の流れ、困ったとき |
 | [docs/DESIGN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DESIGN.md) | 仕組み（データの取得、照合、判定の流れ） |
 | [docs/COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md) | 他のツール（Trivy、Grype、OSV-Scanner）との比較と、実機での確認の結果 |
+| [docs/DEVELOPMENT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEVELOPMENT.md) | 開発（テスト、CI、配布物の作り方） |
 | [docs/DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) | 見つけて直した不具合と、同じ種類の不具合を防ぐ検査 |
 | [CHANGELOG.md](https://github.com/hsgwa/cve_chk/blob/main/CHANGELOG.md) | 変更履歴（[リリース](https://github.com/hsgwa/cve_chk/releases)） |
 | [docs/PLAN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/PLAN.md) | 最初の設計の記録（経緯。本文は実装前の計画のまま） |
@@ -111,5 +112,5 @@
 外部のツールとデータ（このツールのライセンスの対象外です）:
 
 - **syft**（Apache-2.0）、**Trivy**（Apache-2.0、任意）は利用者が別に入手して使います。このリポジトリには含めていません。
-- `update` で取得する脆弱性データ（OSV.dev、Amazon Linux の公式情報）と、Windows OS の判定で取得する Microsoft の公開データは、それぞれの提供元の条件に従います。OSV.dev のデータは、提供元（GitHub Advisory Database、Ubuntu、Debian など）ごとにライセンスが異なります。
+- `zk update` で取得する脆弱性データ（OSV.dev、Amazon Linux の公式情報）と、Windows OS の判定で取得する Microsoft の公開データは、それぞれの提供元の条件に従います。OSV.dev のデータは、提供元（GitHub Advisory Database、Ubuntu、Debian など）ごとにライセンスが異なります。
 - `examples/vulndb/`（OSV.dev と Amazon Linux のデータの一部）、`examples/cache/msrc/`（Microsoft の公開データの一部）、`examples/trivy_fixtures/`（Trivy の出力）は、試験用にそれらのデータから抜き出したもので、元のデータの条件に従います。

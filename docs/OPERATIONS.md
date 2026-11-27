@@ -1,6 +1,6 @@
 # 運用の手引き
 
-導入の計画（自動化の範囲、人の作業、本番投入前のチェックリスト、リスク）は [ROLLOUT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/ROLLOUT.md) にあります。この文書は、本番の環境で使う前に確かめること、対象のサーバーへの影響、回収物の扱い、レポートを使った対応の流れ、困ったときの対処をまとめます。ツールの概要は [README](https://github.com/hsgwa/cve_chk/blob/main/README.md)、操作の詳細は [USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md)、仕組みは [DESIGN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DESIGN.md) を参照してください。
+導入の計画（自動化の範囲、人の作業、本番投入前のチェックリスト、リスク）は [ROLLOUT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/ROLLOUT.md) にあります。この文書は、本番の環境で使う前に確かめること、対象のサーバーへの影響、回収物の扱い、レポートを使った対応の流れ、困ったときの対処をまとめます。ツールの概要は [README](https://github.com/hsgwa/cve_chk/blob/main/README.md)、操作の詳細は [docs/usage/](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/README.md)、仕組みは [DESIGN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DESIGN.md) を参照してください。
 
 ## 1. 本番の前に確かめること
 
@@ -17,7 +17,7 @@
 | 項目 | 内容 |
 |---|---|
 | 変更 | しない。パッケージのインストール、設定、レジストリ、サービス、タスクの変更はしない。ネットワークも使わない |
-| 書き込み | **スクリプトを置いたフォルダの中だけ。** 出力（`out/<ホスト名>/`）に数十 KB〜十数 MB。Linux は syft の展開・一時ファイル・キャッシュを `.work/` に置き（約 60 MB〜）、終われば消す。回収後はフォルダごと消せば元の状態に戻る（[USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の 2 章。CI で毎回確かめている） |
+| 書き込み | **スクリプトを置いたフォルダの中だけ。** 出力（`out/<ホスト名>/`）に数十 KB〜十数 MB。Linux は syft の展開・一時ファイル・キャッシュを `.work/` に置き（約 60 MB〜）、終われば消す。回収後はフォルダごと消せば元の状態に戻る（[collect.md](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/collect.md)。CI で毎回確かめている） |
 | 空き容量 | 出力先の空きが 500 MB 未満なら、何も書かずに止める（ディスクを満杯にしない） |
 | ファイルのロック | しない。Windows では、他のプログラムの書き込み・削除・名前の変更を妨げない開き方で読む（業務アプリが jar を更新・再配置中でも邪魔をしない）。Linux はもともとロックしない |
 | ディスクの読み込み | 最も大きい負荷。Linux は `/` 全体、Windows は走査対象のフォルダのファイルを読む |
@@ -48,17 +48,17 @@
 - 管理 PC では、回収物とレポートを置くフォルダの権限を担当者だけに絞る。
 - 不要になった回収物は消す（再判定に使う最新の 1 回分だけを残す、など）。
 - このツールが外部に送るのは次だけです。回収物そのものは送りません。
-  - `update`: 取得するデータの名前（Maven、Ubuntu など）
+  - `zk update`: 取得するデータの名前（Maven、Ubuntu など）
   - Windows OS の判定: 通達の CVE 番号（MSRC へ）
   - `--resolve-hashes`（既定では使わない）: 名前の分からない jar の SHA-1（Maven Central へ）
 
 ## 4. 管理 PC の運用
 
-- **調査は `check_all.ps1` でまとめて実行する。** 照合の前に脆弱性データを必ず更新します（[USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の 1 章、[ROLLOUT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/ROLLOUT.md) の 2 章）。`check` を個別に実行する場合、データの更新から 1 日を超えていると結果に警告が出ます。
+- **調査は `check_all.ps1` でまとめて実行する。** 照合の前に脆弱性データを必ず更新します（[check.md](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/check.md)、[ROLLOUT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/ROLLOUT.md) の 2 章）。`zk check` を個別に実行する場合、データの更新から 1 日を超えていると結果に警告が出ます。
 - **データの置き場所には 5 GB 以上の空きを用意する。** 脆弱性データは Ubuntu・npm・Debian を含めて約 2.3 GB（索引 1.2 GB と zip）。7 日ごとの全件の取り直しでは、新しい zip を書き終えてから入れ替えるので、一時的に Ubuntu の分（約 800 MB）が余分に要る。
 - **レポートは調査のたびに増える**（小さい環境で数十 KB、ソフトの多い Linux を含む 5 環境で約 16 MB）。証跡として残すので、台数が多い場合は古いレポートを別の場所に移す。
 - 対象マシンで使う容量は、Linux で最大 150 MB 程度（syft の tar.gz 16〜30 MB、実行中だけの展開 60〜90 MB、回収物 0.3〜15 MB）、Windows で 1 MB 未満（回収物 0.1〜0.2 MB）。空きが 500 MB 未満なら何も書かずに止める。
-- データのファイルが消えた場合（ウイルス対策ソフトや一時ファイルの掃除など）は、`check` が「データベースのファイルがありません」で止まります。`zk update` を実行すると、消えたデータは全件を取り直して元に戻ります。データの置き場所は、`%TEMP%` のような自動で掃除される場所にしないでください。
+- データのファイルが消えた場合（ウイルス対策ソフトや一時ファイルの掃除など）は、`zk check` が「データベースのファイルがありません」で止まります。`zk update` を実行すると、消えたデータは全件を取り直して元に戻ります。データの置き場所は、`%TEMP%` のような自動で掃除される場所にしないでください。
 - **ウイルス対策ソフトが、検証用に置いた脆弱な jar（log4j-core 2.14.1 など）を隔離することがあります**（検証機で確認）。本番のサーバーでは、隔離されたファイルは回収されません。
 
 ## 5. レポートを使った対応の流れ
@@ -75,15 +75,15 @@
 
 | 症状 | 原因と対処 |
 |---|---|
-| `check` が「脆弱性データがありません」 | `zk update --inventory-dir <回収データ>` を先に実行する |
-| 「脆弱性データの更新が古くなっています」 | `check` を個別に実行した場合に出る。`check_all.ps1` で実行するか、先に `update` を実行する |
+| `zk check` が「脆弱性データがありません」 | `zk update --inventory-dir D:\vuln\inventory` を先に実行する |
+| 「脆弱性データの更新が古くなっています」 | `zk check` を個別に実行した場合に出る。`check_all.ps1` で実行するか、先に `zk update` を実行する |
 | `check_all.ps1` の終了コードが 1 | 脆弱性データの一部を更新できなかった（前回のデータで照合済み）。`logs\run_<日付>.log` の「エラー」の行を見て、管理 PC の接続を確かめる |
-| 「脆弱性データが無いため照合していないもの」 | 回収データに新しい種類のパッケージがある。`update --inventory-dir <回収データ>` で取得する |
-| 環境の判定がすべて「判定不能」 | 回収ファイルが読めていない。`preview` で注意事項を見る（回収フォルダが無い、syft の失敗、収集の中断など） |
+| 「脆弱性データが無いため照合していないもの」 | 回収データに新しい種類のパッケージがある。`zk update --inventory-dir D:\vuln\inventory` で取得する |
+| 環境の判定がすべて「判定不能」 | 回収ファイルが読めていない。`zk preview` で注意事項を見る（回収フォルダが無い、syft の失敗、収集の中断など） |
 | Linux の回収で「syft が … 秒で終わらず打ち切りました」 | `SYFT_TIMEOUT_SEC` を延ばすか、`EXTRA_EXCLUDES` で大きなデータのフォルダを外す |
 | Linux の回収で「syft を実行できません」 | 展開先が noexec。`WORK_DIR` で別の場所を指定する |
 | Windows の回収で jar・exe が 0 件 | 走査対象に入っていない。`-ScanRoots` で指定するか `-AllDrives` を付ける。「スキャン範囲外で動作中」に出ているパスを確かめる |
-| 通達の製品が「未使用」になるが、実際は入っている | 名前の表記が違う。`preview --advisory` で確かめ、`aliases` に登録する |
+| 通達の製品が「未使用」になるが、実際は入っている | 名前の表記が違う。`zk preview --advisory` で確かめ、`aliases` に登録する |
 | Windows OS の判定が行われない | MSRC に接続できない。管理 PC から `api.msrc.microsoft.com` に接続できるか確かめる。`--offline` ではキャッシュだけを使う |
 
-終了コード: `zk check` は正常に終われば 0、入力やデータの誤りで 2。`update` は一部のデータの更新に失敗すると 1（前回のデータは残る）。`collect_linux.sh` は syft が失敗すると 3（`os_info.json` は出る）。
+終了コード: `zk check` は正常に終われば 0、入力やデータの誤りで 2。`zk update` は一部のデータの更新に失敗すると 1（前回のデータは残る）。`collect_linux.sh` は syft が失敗すると 3（`os_info.json` は出る）。
