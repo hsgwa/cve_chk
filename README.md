@@ -1,4 +1,6 @@
-# vuln-triage
+# 脆弱確認（zk）
+
+コマンド: `zk`（パッケージ名 `zeijaku-kakunin`）。`zk update` で脆弱性データを最新にし、`zk check` で照合してレポートを出します。
 
 会社が公表した脆弱性の通達（Excel）ごとに、**社内のどのサーバーが影響を受けるか**を判定し、社内ランクと対応期限をつけてレポートにするツールです。インターネットにつながらないサーバー（AWS EC2 / EMR / Lambda、Linux、Windows）を対象にします。
 
@@ -16,7 +18,7 @@
 | 用語 | 意味 |
 |---|---|
 | 対象マシン | 脆弱性を調べたいサーバー（ターゲットマシン）。インターネットにつながらない前提 |
-| 管理 PC | ツール本体（`vuln-triage`）を動かす PC。インターネットにつながる。回収物を集めて照合し、レポートを作る |
+| 管理 PC | ツール本体（`zk`）を動かす PC。インターネットにつながる。回収物を集めて照合し、レポートを作る |
 | 回収スクリプト | 対象マシンで実行して、入っているソフトの一覧を作るスクリプト。Linux は `collect_linux.sh`、Windows は `collect_win.ps1` |
 | SBOM | ソフトウェア部品表（Software Bill of Materials）。入っているソフトの名前・版・種類の一覧。このツールは CycloneDX という形式の JSON を使う |
 | syft | SBOM を作る無償のツール（Anchore 社）。Linux の回収で使う。単体のプログラムなので、持ち込んで展開するだけで動く |
@@ -33,7 +35,7 @@
 
 ## 処理の流れ
 
-![処理の流れ: 1 人が回収スクリプトを実行、2 人が回収物と会社公表リストを置く、3 人が run_check.ps1 を実行、4 ツールが脆弱性データを最新にする、5 ツールが照合と判定をしてレポートを出す、6 人がレポートを見て対応する](docs/images/workflow.drawio.png)
+![処理の流れ: 1 人が回収スクリプトを実行、2 人が回収物と会社公表リストを置く、3 人が check_all.ps1 を実行、4 ツールが脆弱性データを最新にする、5 ツールが照合と判定をしてレポートを出す、6 人がレポートを見て対応する](docs/images/workflow.drawio.png)
 
 調査のたびに脆弱性データを最新にしてから照合するので、**新しい脆弱性は回収をし直さなくても、調査を実行すれば見つかります**。回収をし直すのは、対象マシンのソフトが変わったとき（更新、追加）です。
 
@@ -74,7 +76,7 @@
 
 ## 品質
 
-- push のたびに GitHub Actions で、単体テスト（Windows / Linux、Python 3.10 / 3.13）と、Windows Server 2025・Amazon Linux 2023・Ubuntu 24.04 での回収から照合までの試験、調査スクリプト（`run_check.ps1`）の試験を行います。syft は固定の版と最新の版の両方で試します。
+- push のたびに GitHub Actions で、単体テスト（Windows / Linux、Python 3.10 / 3.13）と、Windows Server 2025・Amazon Linux 2023・Ubuntu 24.04 での回収から照合までの試験、調査スクリプト（`check_all.ps1`）の試験を行います。syft は固定の版と最新の版の両方で試します。
 - 実機（Windows 11、Ubuntu 24.04、Amazon Linux 2 / 2023）で回収から照合までを通し、同じ SBOM で Grype と結果を比べ、差を 1 件ずつ確かめています（[docs/COMPARISON.md](docs/COMPARISON.md)）。
 - 見つけて直した不具合と、同じ種類の不具合を防ぐ検査は [docs/DEFECTS.md](docs/DEFECTS.md) にあります。
 
@@ -108,5 +110,5 @@
 外部のツールとデータ（このツールのライセンスの対象外です）:
 
 - **syft**（Apache-2.0）、**Trivy**（Apache-2.0、任意）は利用者が別に入手して使います。このリポジトリには含めていません。
-- `db-update` で取得する脆弱性データ（OSV.dev、Amazon Linux の公式情報）と、Windows OS の判定で取得する Microsoft の公開データは、それぞれの提供元の条件に従います。OSV.dev のデータは、提供元（GitHub Advisory Database、Ubuntu、Debian など）ごとにライセンスが異なります。
+- `update` で取得する脆弱性データ（OSV.dev、Amazon Linux の公式情報）と、Windows OS の判定で取得する Microsoft の公開データは、それぞれの提供元の条件に従います。OSV.dev のデータは、提供元（GitHub Advisory Database、Ubuntu、Debian など）ごとにライセンスが異なります。
 - `examples/vulndb/`（OSV.dev と Amazon Linux のデータの一部）、`examples/cache/msrc/`（Microsoft の公開データの一部）、`examples/trivy_fixtures/`（Trivy の出力）は、試験用にそれらのデータから抜き出したもので、元のデータの条件に従います。

@@ -1,5 +1,5 @@
-from vuln_triage.matching.names import build_matcher, normalize_name
-from vuln_triage.models import KIND_EXECUTABLE, KIND_MAVEN, KIND_SOFTWARE, Component
+from zeijaku_kakunin.matching.names import build_matcher, normalize_name
+from zeijaku_kakunin.models import KIND_EXECUTABLE, KIND_MAVEN, KIND_SOFTWARE, Component
 
 
 def test_normalize_name():

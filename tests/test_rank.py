@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from vuln_triage.matching.rank import decide_rank, rank_from_matrix
+from zeijaku_kakunin.matching.rank import decide_rank, rank_from_matrix
 
 from conftest import TODAY, make_advisory
 

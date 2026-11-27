@@ -1,5 +1,14 @@
 # 変更履歴
 
+## 0.8.0（2026-11-27）
+
+### 変更（名前）
+- ツール名を **脆弱確認（zk）** にした。コマンドは `zk`、パッケージ名は `zeijaku-kakunin`（PyPI・GitHub で使われていない名前）、Python のモジュール名は `zeijaku_kakunin`。同じ働きの長いコマンド名 `zeijaku-kakunin` もある（別のツールの `zk` と重なる場合用）。
+- コマンド名: `db-update` → `update`、`run` → `check`、`check-inputs` → `preview`、`scan-archive` → `scan-file`、`build-sbom` → `export-sbom`。スクリプト: `run_check.ps1` → `check_all.ps1`。
+- 旧名（`vuln-triage` と上の旧コマンド名）もしばらく使える。使うと新しい名前を案内する。
+- 回収物の形式（`vuln-triage-inventory/1` など）は変えていない。これまでの回収物はそのまま使える。
+- 移行: `pip uninstall vuln-triage` のあと `pip install -e .` をやり直す。
+
 ## 0.7.0（2026-11-27）
 
 ### 追加

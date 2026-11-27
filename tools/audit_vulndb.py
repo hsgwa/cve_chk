@@ -30,15 +30,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from vuln_triage.config import load_config  # noqa: E402
-from vuln_triage.inventory import load_inventories  # noqa: E402
-from vuln_triage.purl import parse_purl  # noqa: E402
-from vuln_triage.sbom_builder import assign_purls  # noqa: E402
-from vuln_triage.vulndb.coverage import classify  # noqa: E402
-from vuln_triage.vulndb.ecosystems import build_query, is_kernel_header_package, normalize_package, skip_reason  # noqa: E402
-from vuln_triage.vulndb.scanner import scan_with_vulndb  # noqa: E402
-from vuln_triage.vulndb.store import EXTRAS_PREFIX, VulnDB  # noqa: E402
-from vuln_triage.vulndb.versions import SCHEMES, UncomparableVersion, compare, scheme_for  # noqa: E402
+from zeijaku_kakunin.config import load_config  # noqa: E402
+from zeijaku_kakunin.inventory import load_inventories  # noqa: E402
+from zeijaku_kakunin.purl import parse_purl  # noqa: E402
+from zeijaku_kakunin.sbom_builder import assign_purls  # noqa: E402
+from zeijaku_kakunin.vulndb.coverage import classify  # noqa: E402
+from zeijaku_kakunin.vulndb.ecosystems import build_query, is_kernel_header_package, normalize_package, skip_reason  # noqa: E402
+from zeijaku_kakunin.vulndb.scanner import scan_with_vulndb  # noqa: E402
+from zeijaku_kakunin.vulndb.store import EXTRAS_PREFIX, VulnDB  # noqa: E402
+from zeijaku_kakunin.vulndb.versions import SCHEMES, UncomparableVersion, compare, scheme_for  # noqa: E402
 
 problems: list[str] = []
 

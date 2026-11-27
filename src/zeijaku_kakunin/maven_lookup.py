@@ -18,7 +18,7 @@ SEARCH = "https://search.maven.org/solrsearch/select"
 
 def _search(sha1: str, timeout: int = 30) -> dict | None:
     query = urllib.parse.urlencode({"q": f'1:"{sha1}"', "rows": 1, "wt": "json"})
-    request = urllib.request.Request(f"{SEARCH}?{query}", headers={"User-Agent": "vuln-triage"})
+    request = urllib.request.Request(f"{SEARCH}?{query}", headers={"User-Agent": "zeijaku-kakunin"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         docs = json.loads(response.read().decode("utf-8"))["response"]["docs"]
     if not docs:

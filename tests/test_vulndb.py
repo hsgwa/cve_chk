@@ -7,15 +7,15 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from click.testing import CliRunner
 
-from vuln_triage.cli import main
-from vuln_triage.inventory import load_env_dir
-from vuln_triage.models import KIND_MAVEN, Component
-from vuln_triage.vulndb import store as store_module
-from vuln_triage.vulndb.cvss import cvss3_base_score
-from vuln_triage.vulndb.ecosystems import build_query, needed_sources, parse_purl_full
-from vuln_triage.vulndb.scanner import evaluate, scan_with_vulndb, stale_sources
-from vuln_triage.vulndb.store import DELTA_FILE, VulnDB, parse_modified_ids
-from vuln_triage.vulndb.versions import (
+from zeijaku_kakunin.cli import main
+from zeijaku_kakunin.inventory import load_env_dir
+from zeijaku_kakunin.models import KIND_MAVEN, Component
+from zeijaku_kakunin.vulndb import store as store_module
+from zeijaku_kakunin.vulndb.cvss import cvss3_base_score
+from zeijaku_kakunin.vulndb.ecosystems import build_query, needed_sources, parse_purl_full
+from zeijaku_kakunin.vulndb.scanner import evaluate, scan_with_vulndb, stale_sources
+from zeijaku_kakunin.vulndb.store import DELTA_FILE, VulnDB, parse_modified_ids
+from zeijaku_kakunin.vulndb.versions import (
     compare,
     compare_apk,
     compare_dpkg,
@@ -164,8 +164,8 @@ def test_os_package_queries():
 
 
 def test_needed_sources(examples, config):
-    from vuln_triage.inventory import load_inventories
-    from vuln_triage.sbom_builder import assign_purls
+    from zeijaku_kakunin.inventory import load_inventories
+    from zeijaku_kakunin.sbom_builder import assign_purls
     envs = load_inventories(examples / "inventory", {})
     assign_purls(envs)
     sources, unsupported = needed_sources(envs, config)
@@ -300,17 +300,17 @@ def test_example_database(examples, config):
 def test_db_update_cli(tmp_path, monkeypatch, examples):
     archive = osv_zip(tmp_path / "m.zip", RECORDS)
     runner = CliRunner()
-    assert runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "empty")]).exit_code == 2   # 初回は対象の指定が必要
-    result = runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db"), "--import", f"Maven={archive}"])
+    assert runner.invoke(main, ["update", "--db-dir", str(tmp_path / "empty")]).exit_code == 2   # 初回は対象の指定が必要
+    result = runner.invoke(main, ["update", "--db-dir", str(tmp_path / "db"), "--import", f"Maven={archive}"])
     assert result.exit_code == 0, result.output
-    result = runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db"), "--list"])
+    result = runner.invoke(main, ["update", "--db-dir", str(tmp_path / "db"), "--list"])
     assert "Maven: 3 件" in result.output
 
     requested = []
     # --import だけなら、取得済みの Maven をダウンロードし直さない
     monkeypatch.setattr(store_module, "_fetch", lambda url: requested.append(url) or b"")
     other = osv_zip(tmp_path / "c.zip", RECORDS)
-    result = runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db"), "--import", f"crates.io={other}"])
+    result = runner.invoke(main, ["update", "--db-dir", str(tmp_path / "db"), "--import", f"crates.io={other}"])
     assert result.exit_code == 0, result.output
     assert requested == []
 
@@ -320,13 +320,13 @@ def test_db_update_cli(tmp_path, monkeypatch, examples):
 
     monkeypatch.setattr(store_module, "_fetch", fake_fetch)
     # 引数なし = 取得済みのデータ（Maven）をすべて更新する。失敗しても前の内容は残る
-    result = runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db")])
+    result = runner.invoke(main, ["update", "--db-dir", str(tmp_path / "db")])
     assert result.exit_code == 1 and "前回の内容のまま" in result.output
     assert any(url.endswith("/Maven/all.zip") for url in requested)
-    assert "Maven: 3 件" in runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db"), "--list"]).output
+    assert "Maven: 3 件" in runner.invoke(main, ["update", "--db-dir", str(tmp_path / "db"), "--list"]).output
 
     requested.clear()
-    result = runner.invoke(main, ["db-update", "--db-dir", str(tmp_path / "db2"), "--inventory-dir",
+    result = runner.invoke(main, ["update", "--db-dir", str(tmp_path / "db2"), "--inventory-dir",
                                   str(examples / "inventory")])
     assert result.exit_code == 1
     assert "Amazon Linux:2、Maven、PyPI、Ubuntu、Debian" in result.output
@@ -497,8 +497,8 @@ def test_old_database_is_migrated(tmp_path):
 def test_python_module_entry():
     import subprocess
     import sys
-    result = subprocess.run([sys.executable, "-m", "vuln_triage", "--help"], capture_output=True, text=True)
-    assert result.returncode == 0 and "db-update" in result.stdout
+    result = subprocess.run([sys.executable, "-m", "zeijaku_kakunin", "--help"], capture_output=True, text=True)
+    assert result.returncode == 0 and "update" in result.stdout
 
 
 
@@ -642,7 +642,7 @@ def test_extras_floor_uses_oldest_fix_in_topic():
 
 
 def test_ecosystem_coverage_classification():
-    from vuln_triage.vulndb.coverage import classify
+    from zeijaku_kakunin.vulndb.coverage import classify
     used = ["Ubuntu:24.04:LTS", "Ubuntu:Pro:24.04:LTS", "Ubuntu:Pro:25.10", "Debian:12", "Red Hat:enterprise_linux:9::appstream",
             "Red Hat:enterprise_linux:10.2", "Rocky Linux:9", "AlmaLinux:10", "Alpine:v3.20", "Amazon Linux:2",
             "Amazon Linux:2023", "Maven", "PyPI"]
@@ -710,15 +710,15 @@ def test_cli_does_not_crash_on_non_japanese_console(tmp_path):
     import subprocess
     import sys
     env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
-    for args in (["--help"], ["db-update", "--db-dir", str(tmp_path / "db"), "--list"]):
-        result = subprocess.run([sys.executable, "-m", "vuln_triage", *args], capture_output=True, env=env)
+    for args in (["--help"], ["update", "--db-dir", str(tmp_path / "db"), "--list"]):
+        result = subprocess.run([sys.executable, "-m", "zeijaku_kakunin", *args], capture_output=True, env=env)
         assert result.returncode == 0, result.stderr.decode("cp1252", "replace")
         assert b"UnicodeEncodeError" not in result.stderr
 
 
 def test_large_records_use_slim_copy_with_same_results(tmp_path, config):
     """大きな記録（64 KB 以上）は縮小版で照合し、結果は元の記録と同じ。古い索引には ensure_slim で縮小版を作る。"""
-    from vuln_triage.vulndb import store as store_module
+    from zeijaku_kakunin.vulndb import store as store_module
 
     def kernel(record_id, fixed, versions_only=False):
         flavors = [{"package": {"ecosystem": "Ubuntu:24.04:LTS", "name": f"linux-flavor{i}"},

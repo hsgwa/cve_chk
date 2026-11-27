@@ -1,6 +1,6 @@
 from datetime import date
 
-from vuln_triage.models import (
+from zeijaku_kakunin.models import (
     AFFECTED,
     AFFECTED_UNCOMPARABLE,
     KIND_CUSTOM,
@@ -14,7 +14,7 @@ from vuln_triage.models import (
     FailedProbe,
     Finding,
 )
-from vuln_triage.verdict import CAT_KB, CAT_MSRC, CAT_RULE, CAT_TRIVY, CAT_TRIVY_RULE, STATUS_NEW, Judge
+from zeijaku_kakunin.verdict import CAT_KB, CAT_MSRC, CAT_RULE, CAT_TRIVY, CAT_TRIVY_RULE, STATUS_NEW, Judge
 
 from conftest import TODAY, comp, make_advisory, make_env
 
@@ -241,8 +241,8 @@ def test_rule_uses_ecosystem_version_order(config):
 
 
 def test_not_collected_env_is_unknown_for_every_kind_of_advisory(config):
-    from vuln_triage.models import EnvInventory
-    from vuln_triage.verdict import CAT_NOT_COLLECTED
+    from zeijaku_kakunin.models import EnvInventory
+    from zeijaku_kakunin.verdict import CAT_NOT_COLLECTED
 
     env = EnvInventory(name="forgotten", registered=True)
     env.not_collected = True

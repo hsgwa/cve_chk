@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "src" / "vuln_triage"
+SRC = ROOT / "src" / "zeijaku_kakunin"
 
 
 def sources(pattern="**/*.py"):
@@ -70,7 +70,7 @@ def test_powershell_patterns(script):
 
 
 def test_saved_file_names_are_valid_on_windows():
-    from vuln_triage.vulndb.store import VulnDB
+    from zeijaku_kakunin.vulndb.store import VulnDB
     names = ["Maven", "crates.io", "Red Hat", "Rocky Linux", "Amazon Linux:2", "Amazon Linux:2023",
              "Amazon Linux:2:extras:kernel-5.10", "Amazon Linux:2:extras:php8.2", "Ubuntu"]
     for name in names:
@@ -91,17 +91,17 @@ def test_db_update_option_combinations(tmp_path, monkeypatch, args, expect_fetch
     import json
     import zipfile
 
-    from vuln_triage.cli import main
-    from vuln_triage.vulndb import store
+    from zeijaku_kakunin.cli import main
+    from zeijaku_kakunin.vulndb import store
 
     archive = tmp_path / "a.zip"
     with zipfile.ZipFile(archive, "w") as z:
         z.writestr("X.json", json.dumps({"id": "X", "affected": []}))
     db = tmp_path / "db"
-    assert CliRunner().invoke(main, ["db-update", "--db-dir", str(db), "--import", f"Maven={archive}"]).exit_code == 0
+    assert CliRunner().invoke(main, ["update", "--db-dir", str(db), "--import", f"Maven={archive}"]).exit_code == 0
     fetched = []
     monkeypatch.setattr(store, "_fetch", lambda url: fetched.append(url) or (_ for _ in ()).throw(OSError("offline")))
-    CliRunner().invoke(main, ["db-update", "--db-dir", str(db), *[a.format(zip=archive) for a in args]])
+    CliRunner().invoke(main, ["update", "--db-dir", str(db), *[a.format(zip=archive) for a in args]])
     assert bool(fetched) is expect_fetch, fetched
 
 

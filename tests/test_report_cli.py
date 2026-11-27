@@ -3,11 +3,11 @@ import csv
 from click.testing import CliRunner
 from openpyxl import load_workbook
 
-from vuln_triage.cli import main
-from vuln_triage.maven_lookup import resolve_hashes
-from vuln_triage.models import KIND_MAVEN
-from vuln_triage.report import tables
-from vuln_triage.verdict import Judge
+from zeijaku_kakunin.cli import main
+from zeijaku_kakunin.maven_lookup import resolve_hashes
+from zeijaku_kakunin.models import KIND_MAVEN
+from zeijaku_kakunin.report import tables
+from zeijaku_kakunin.verdict import Judge
 
 from conftest import TODAY, comp, make_advisory, make_env
 
@@ -20,7 +20,7 @@ def read_csv(path):
 def run_examples(examples, tmp_path, *extra, scanner=("--db-dir",)):
     if scanner == ("--db-dir",):
         scanner = ("--db-dir", str(examples / "vulndb"))
-    args = ["run", "--inventory-dir", str(examples / "inventory"), "--env-master", str(examples / "env_master.csv"),
+    args = ["check", "--inventory-dir", str(examples / "inventory"), "--env-master", str(examples / "env_master.csv"),
             "--advisory", str(examples / "advisory_list.xlsx"), *scanner,
             "--cache-dir", str(examples / "cache"), "--offline", "--base-date", "2026-11-20",
             "--out-dir", str(tmp_path / "out"), "--work-dir", str(tmp_path / "work"), *extra]
@@ -124,15 +124,15 @@ def test_cli_without_cve_scan(examples, tmp_path):
 
 
 def test_cli_errors(examples, tmp_path, monkeypatch):
-    monkeypatch.setattr("vuln_triage.trivy_runner.shutil.which", lambda name: None)
-    base = ["run", "--inventory-dir", str(examples / "inventory"), "--out-dir", str(tmp_path / "out"),
+    monkeypatch.setattr("zeijaku_kakunin.trivy_runner.shutil.which", lambda name: None)
+    base = ["check", "--inventory-dir", str(examples / "inventory"), "--out-dir", str(tmp_path / "out"),
             "--work-dir", str(tmp_path / "work"), "--cache-dir", str(tmp_path / "cache")]
     result = CliRunner().invoke(main, [*base, "--advisory", str(examples / "advisory_list.csv"), "--scanner", "trivy"])
     assert result.exit_code == 2 and "Trivy が見つかりません" in result.output
 
     result = CliRunner().invoke(main, [*base, "--advisory", str(examples / "advisory_list.csv"),
                                        "--db-dir", str(tmp_path / "nodb")])
-    assert result.exit_code == 2 and "db-update" in result.output
+    assert result.exit_code == 2 and "update" in result.output
 
     bad = tmp_path / "bad.csv"
     bad.write_text("番号,内容\n1,x\n", encoding="utf-8")
@@ -142,13 +142,13 @@ def test_cli_errors(examples, tmp_path, monkeypatch):
 
 def test_check_inputs_and_build_sbom(examples, tmp_path):
     result = CliRunner().invoke(main, [
-        "check-inputs", "--inventory-dir", str(examples / "inventory"), "--env-master", str(examples / "env_master.csv"),
+        "preview", "--inventory-dir", str(examples / "inventory"), "--env-master", str(examples / "env_master.csv"),
         "--advisory", str(examples / "advisory_list.xlsx")])
     assert result.exit_code == 0, result.output
     assert "win-app01" in result.output and "ADV-011 [nginx] -> 該当なし" in result.output
     assert "ADV-006 [Apache Tomcat*] -> " in result.output and "Apache Tomcat 9.0 Tomcat9 9.0.83" in result.output
 
-    result = CliRunner().invoke(main, ["build-sbom", "--inventory-dir", str(examples / "inventory"),
+    result = CliRunner().invoke(main, ["export-sbom", "--inventory-dir", str(examples / "inventory"),
                                        "--out-dir", str(tmp_path / "sbom")])
     assert result.exit_code == 0 and (tmp_path / "sbom" / "generated_win-app01.cdx.json").is_file()
 
@@ -189,8 +189,8 @@ def test_update_table_groups_findings_per_package(config):
     """要更新パッケージ: 環境 × パッケージごとにまとめ、すべての脆弱性が直る版（修正版の最大）を出す。"""
     from datetime import date
 
-    from vuln_triage.models import Verdict
-    from vuln_triage.report import tables
+    from zeijaku_kakunin.models import Verdict
+    from zeijaku_kakunin.report import tables
 
     def row(cve, fixed, cvss, rank, status="影響あり", advisory=""):
         return Verdict(status=status, env="web", exposure="internet", cve_id=cve, advisory_id=advisory,
@@ -270,3 +270,17 @@ def test_previous_run_comparison(examples, tmp_path):
     # 前回のフォルダに上書きしない
     bad = run_examples(examples, tmp_path, "--previous", str(tmp_path / "out"))
     assert bad.exit_code == 2 and "同じフォルダ" in bad.output
+
+
+def test_new_and_old_command_names(examples, tmp_path):
+    """新しいコマンド名で動き、旧名（0.7.0 まで）も別名として動いて新しい名前を案内する。一覧に旧名は出ない。"""
+    runner = CliRunner()
+    help_text = runner.invoke(main, ["--help"]).output
+    for new in ("update", "check", "preview", "scan-file", "export-sbom"):
+        assert new in help_text
+    for old in ("db-update", "check-inputs", "scan-archive", "build-sbom"):
+        assert old not in help_text
+    result = runner.invoke(main, ["check-inputs", "--inventory-dir", str(examples / "inventory")])
+    assert result.exit_code == 0 and "zk preview" in result.output
+    result = run_examples(examples, tmp_path, "--no-xlsx")
+    assert result.exit_code == 0

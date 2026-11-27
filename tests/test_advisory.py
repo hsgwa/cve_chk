@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from openpyxl import Workbook
 
-from vuln_triage.advisory import AdvisoryFormatError, load_advisories
+from zeijaku_kakunin.advisory import AdvisoryFormatError, load_advisories
 
 
 def make_xlsx(path, rows, title="Sheet1", merges=()):

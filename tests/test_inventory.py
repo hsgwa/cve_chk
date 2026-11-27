@@ -1,14 +1,14 @@
 import json
 
-from vuln_triage.inventory import (
+from zeijaku_kakunin.inventory import (
     detect_format,
     load_env_dir,
     load_env_master,
     load_inventories,
     normalize_kb,
 )
-from vuln_triage.purl import parse_purl
-from vuln_triage.models import KIND_CUSTOM, KIND_EXECUTABLE, KIND_MAVEN, KIND_OS_PACKAGE, KIND_PYPI, KIND_SOFTWARE
+from zeijaku_kakunin.purl import parse_purl
+from zeijaku_kakunin.models import KIND_CUSTOM, KIND_EXECUTABLE, KIND_MAVEN, KIND_OS_PACKAGE, KIND_PYPI, KIND_SOFTWARE
 
 
 def write(path, data, encoding="utf-8"):
@@ -155,8 +155,8 @@ def test_env_master_without_folder_is_reported(tmp_path):
 
 def test_plain_syft_sbom_without_os_info(examples, tmp_path, config):
     """collect_linux.sh を使わず、素の syft の出力（cdx_syft.json）だけを置いた環境も同じように照合できる。"""
-    from vuln_triage.vulndb.scanner import scan_with_vulndb
-    from vuln_triage.vulndb.store import VulnDB
+    from zeijaku_kakunin.vulndb.scanner import scan_with_vulndb
+    from zeijaku_kakunin.vulndb.store import VulnDB
 
     data = json.loads((examples / "inventory" / "web-ec2" / "cdx_syft.json").read_text(encoding="utf-8"))
     data["metadata"]["timestamp"] = "2026-11-20T01:02:03Z"

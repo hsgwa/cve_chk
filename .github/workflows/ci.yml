@@ -1,8 +1,8 @@
-# Continuous integration for vuln-triage.
+# Continuous integration for zk.
 #
 # - tests:        unit tests and static checks on Windows and Linux, oldest and newest supported Python
 # - windows-e2e:  real collection with collect_win.ps1 on a Windows Server runner (as administrator,
-#                 Windows PowerShell 5.1), matching, and the whole check (run_check.ps1) run twice
+#                 Windows PowerShell 5.1), matching, and the whole check (check_all.ps1) run twice
 # - linux-e2e:    real collection with collect_linux.sh in Amazon Linux 2023 and Ubuntu containers with
 #                 syft 1.18.1 and the newest syft (checksums verified, a tampered tarball refused),
 #                 then matching against freshly downloaded vulnerability data
@@ -89,8 +89,8 @@ jobs:
         run: |
           printf 'env_name,exposure,system_name\nwin-server,internet,CI\n' > /c/e2e/env_master.csv
           printf '通達番号,CVE番号,製品名,影響バージョン\nT-1,CVE-2021-44228,log4j-core,\nT-2,,log4j-core,<2.17.1\n' > /c/e2e/advisory.csv
-          vuln-triage db-update --db-dir /c/e2e/vulndb --ecosystem Maven
-          vuln-triage run --inventory-dir /c/e2e/inventory --env-master /c/e2e/env_master.csv \
+          zk update --db-dir /c/e2e/vulndb --ecosystem Maven
+          zk check --inventory-dir /c/e2e/inventory --env-master /c/e2e/env_master.csv \
             --advisory /c/e2e/advisory.csv --db-dir /c/e2e/vulndb --cache-dir /c/e2e/cache --out-dir /c/e2e/report
           python - <<'EOF'
           import csv
@@ -101,7 +101,7 @@ jobs:
           print("matching OK")
           EOF
 
-      - name: Run the whole check twice with run_check.ps1 (the second run compares with the first)
+      - name: Run the whole check twice with check_all.ps1 (the second run compares with the first)
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -111,7 +111,7 @@ jobs:
           Copy-Item C:\e2e\advisory.csv "$base\advisory\advisory-2026-11.csv"
           Copy-Item C:\e2e\env_master.csv "$base\env_master.csv"
           foreach ($i in 1, 2) {
-            powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_check.ps1 -BaseDir $base -DbDir C:\e2e\vulndb
+            powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_all.ps1 -BaseDir $base -DbDir C:\e2e\vulndb
             if ($LASTEXITCODE -ne 0) { throw "run $i failed: $LASTEXITCODE" }
             Start-Sleep 1
           }
@@ -119,7 +119,7 @@ jobs:
           $reports = @(Get-ChildItem "$base\reports" -Directory)
           if ($reports.Count -ne 2) { throw "expected 2 report folders, got $($reports.Count)" }
           if (-not (Test-Path "$base\reports\$latest\report_changes.csv")) { throw "the second run did not compare with the first" }
-          Write-Host "run_check OK: $($reports.Name -join ', ') latest=$latest"
+          Write-Host "check_all OK: $($reports.Name -join ', ') latest=$latest"
 
   linux-e2e:
     strategy:
@@ -194,8 +194,8 @@ jobs:
         run: |
           printf 'env_name,exposure,system_name\namazonlinux-2023,internal,CI\nubuntu-24-04,internet,CI\n' > env_master.csv
           printf '通達番号,CVE番号,製品名,影響バージョン\nT-1,CVE-2021-44228,log4j-core,\n' > advisory.csv
-          vuln-triage db-update --db-dir vulndb --inventory-dir inventory
-          vuln-triage run --inventory-dir inventory --env-master env_master.csv --advisory advisory.csv \
+          zk update --db-dir vulndb --inventory-dir inventory
+          zk check --inventory-dir inventory --env-master env_master.csv --advisory advisory.csv \
             --db-dir vulndb --out-dir report --no-msrc
           python - <<'EOF'
           import csv

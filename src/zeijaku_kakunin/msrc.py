@@ -19,7 +19,7 @@ _BUILD = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
 
 def _get_json(url: str, timeout: int) -> Any:
-    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "vuln-triage"})
+    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "zeijaku-kakunin"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8-sig"))
 

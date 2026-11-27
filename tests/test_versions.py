@@ -1,6 +1,6 @@
 import pytest
 
-from vuln_triage.matching.versions import normalize_version, version_matches
+from zeijaku_kakunin.matching.versions import normalize_version, version_matches
 
 
 @pytest.mark.parametrize("installed, spec, expected", [

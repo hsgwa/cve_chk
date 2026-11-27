@@ -75,12 +75,18 @@ def with_options(options):
 
 
 @click.group()
-@click.version_option(__version__)
+@click.version_option(__version__, prog_name="脆弱確認（zk）")
 def main() -> None:
-    """オフライン環境のインベントリと会社公表の脆弱性リストを突き合わせます。"""
+    """脆弱確認（zk）: オフライン環境から回収したソフトの一覧を、会社公表の脆弱性リストと突き合わせます。
+
+    \b
+    ふだんの流れ:
+      zk update   脆弱性データを最新にする
+      zk check    照合してレポートを出す
+    """
 
 
-@main.command("db-update")
+@main.command("update")
 @click.option("--inventory-dir", "--sbom-dir", "inventory_dir", type=click.Path(exists=True, file_okay=False),
               help="回収ファイルのフォルダ。ここに新しく出てきたエコシステムのデータも取得する")
 @click.option("--ecosystem", "ecosystems", multiple=True,
@@ -154,7 +160,7 @@ def db_update(inventory_dir, ecosystems, imports, force_full, db_dir, config_pat
     _echo(f"完了: {db.dir}")
 
 
-@main.command()
+@main.command("check")
 @with_options(common_inputs)
 @click.option("--advisory", required=True, type=click.Path(exists=True, dir_okay=False),
               help="会社公表の脆弱性リスト（.xlsx / .xlsm / .csv）")
@@ -215,19 +221,19 @@ def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory
             if not db.exists():
                 raise VulnDBError(
                     f"脆弱性データがありません（{db.dir}）。先に次を実行してください:\n"
-                    f"  vuln-triage db-update --inventory-dir {inventory_dir}")
+                    f"  zk update --inventory-dir {inventory_dir}")
             assign_purls(envs)
             db_info = db.sources()
             stale = stale_sources(db, config)
             if stale:
                 messages.append("脆弱性データの更新が古くなっています: " + "、".join(stale)
-                                + "（vuln-triage db-update で更新）")
+                                + "（zk update で更新）")
             findings = scan_with_vulndb(envs, db, config, log=_echo)
             db.close()
             missing = sorted({name for env in envs for name in env.missing_db})
             if missing:
                 messages.append("脆弱性データが無いため照合していないもの: " + "、".join(missing)
-                                + "（vuln-triage db-update --inventory-dir で取得）")
+                                + "（zk update --inventory-dir で取得）")
         elif scanner == "trivy":
             write_sboms(envs, Path(work_dir) / "sbom")
             findings = scan_environments(envs, config, trivy_results_dir, save_trivy_json, log=_echo)
@@ -257,7 +263,7 @@ def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory
         click.echo(str(path))
 
 
-@main.command("scan-archive")
+@main.command("scan-file")
 @click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True))
 @click.option("--inventory-dir", required=True, type=click.Path(file_okay=False),
               help="結果を置く回収物のフォルダ（<環境名>/archive_inventory.json を作る）")
@@ -267,7 +273,7 @@ def scan_archive_command(paths, inventory_dir, env_name):
     """zip / jar / war / ear / whl（と展開したフォルダ）の中のライブラリを調べ、回収物として置きます。
 
     Lambda のデプロイ用 zip やレイヤー、アプリケーションの war や fat jar などを、サーバーで回収せずに調べられます。
-    作った回収物は run（または run_check.ps1）でほかの環境と同じように照合されます。
+    作った回収物は run（または check_all.ps1）でほかの環境と同じように照合されます。
     """
     from .archive_scan import iter_targets, scan
 
@@ -285,7 +291,7 @@ def scan_archive_command(paths, inventory_dir, env_name):
                    + (f"、読めなかったもの {len(result.skipped)} 件" if result.skipped else "") + f" → {file}")
 
 
-@main.command("build-sbom")
+@main.command("export-sbom")
 @with_options(common_inputs)
 @click.option("--out-dir", default="work/sbom", show_default=True, help="SBOM の出力先")
 def build_sbom_command(inventory_dir, env_master, config_path, out_dir):
@@ -298,7 +304,7 @@ def build_sbom_command(inventory_dir, env_master, config_path, out_dir):
         click.echo(str(path))
 
 
-@main.command("check-inputs")
+@main.command("preview")
 @with_options(common_inputs)
 @click.option("--advisory", type=click.Path(exists=True, dir_okay=False), help="会社公表の脆弱性リスト")
 def check_inputs(inventory_dir, env_master, config_path, advisory):
@@ -334,6 +340,26 @@ def check_inputs(inventory_dir, env_master, config_path, advisory):
             hits = sorted({f"{c.name} {c.version}".strip() for env in envs for c in env.components if matcher(c)})
             shown = "、".join(hits[:5]) + (f" ほか {len(hits) - 5} 件" if len(hits) > 5 else "")
             click.echo(f"{item.advisory_id} [{item.product_name}] -> {shown or '該当なし（表記ゆれなら aliases に追加）'}")
+
+
+# ---- 旧名（0.7.0 まで）の別名。一覧には出さず、使うと新しい名前を案内する ----
+_OLD_NAMES = {"db-update": "update", "run": "check", "check-inputs": "preview",
+              "scan-archive": "scan-file", "build-sbom": "export-sbom"}
+
+
+def _alias(old: str, new: str) -> click.Command:
+    command = main.commands[new]
+
+    def callback(*args, **kwargs):
+        _echo(f"注意: 「{old}」は旧名です。今後は「zk {new}」を使ってください")
+        return command.callback(*args, **kwargs)
+
+    return click.Command(old, params=command.params, callback=callback, hidden=True,
+                         help=f"旧名。zk {new} と同じ")
+
+
+for _old, _new in _OLD_NAMES.items():
+    main.add_command(_alias(_old, _new))
 
 
 if __name__ == "__main__":

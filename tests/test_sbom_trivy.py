@@ -3,11 +3,11 @@ import subprocess
 
 import pytest
 
-from vuln_triage import trivy_runner
-from vuln_triage.inventory import load_env_dir
-from vuln_triage.models import KIND_MAVEN, KIND_NPM, KIND_NUGET, KIND_PYPI, KIND_SOFTWARE, Component
-from vuln_triage.sbom_builder import build_sbom, make_purl, write_sboms
-from vuln_triage.trivy_runner import (
+from zeijaku_kakunin import trivy_runner
+from zeijaku_kakunin.inventory import load_env_dir
+from zeijaku_kakunin.models import KIND_MAVEN, KIND_NPM, KIND_NUGET, KIND_PYPI, KIND_SOFTWARE, Component
+from zeijaku_kakunin.sbom_builder import build_sbom, make_purl, write_sboms
+from zeijaku_kakunin.trivy_runner import (
     TrivyNotFoundError,
     find_trivy,
     parse_results,

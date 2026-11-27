@@ -1,7 +1,7 @@
 import urllib.error
 
-from vuln_triage.models import AFFECTED, NOT_AFFECTED, NOT_APPLICABLE, UNKNOWN
-from vuln_triage.msrc import MsrcClient, evaluate_build, extract_cve
+from zeijaku_kakunin.models import AFFECTED, NOT_AFFECTED, NOT_APPLICABLE, UNKNOWN
+from zeijaku_kakunin.msrc import MsrcClient, evaluate_build, extract_cve
 
 DOCUMENT = {
     "ProductTree": {"FullProductName": [

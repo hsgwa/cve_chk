@@ -1,9 +1,9 @@
 ﻿<#
 =============================================================================
-run_check.ps1 - 調査をまとめて実行する（脆弱性データの更新 → 照合 → レポート）。調査のたびに実行する
+check_all.ps1 - 調査をまとめて実行する（脆弱性データの更新 → 照合 → レポート）。調査のたびに実行する
 
   作業フォルダ（-BaseDir）の決まった場所にあるデータで、次を順に行う。
-    1. 脆弱性データの更新（db-update。-SkipDbUpdate で省略）
+    1. 脆弱性データの更新（update。-SkipDbUpdate で省略）
     2. 照合（run）。会社公表リストは advisory\ のうち最も新しいファイルを使う
     3. レポートを reports\<日付>\ に出す。前回のレポートがあれば「前回との差分」も出す
 
@@ -17,7 +17,7 @@ run_check.ps1 - 調査をまとめて実行する（脆弱性データの更新 
   終了コード: 0 = 成功、1 = データの更新の一部に失敗したが照合はできた、2 = 照合できなかった
 
 実行（管理 PC で、ツールのフォルダから）:
-  powershell -ExecutionPolicy Bypass -File scripts\run_check.ps1 -BaseDir D:\vuln
+  powershell -ExecutionPolicy Bypass -File scripts\check_all.ps1 -BaseDir D:\vuln
 =============================================================================
 #>
 param(
@@ -60,9 +60,9 @@ $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 
 function Invoke-Tool([string[]]$Arguments) {
-    Write-Log ('実行: {0} -m vuln_triage {1}' -f $Python, ($Arguments -join ' '))
+    Write-Log ('実行: {0} -m zeijaku_kakunin {1}' -f $Python, ($Arguments -join ' '))
     try {
-        & $Python -m vuln_triage @Arguments 2>&1 | ForEach-Object {
+        & $Python -m zeijaku_kakunin @Arguments 2>&1 | ForEach-Object {
             # 標準エラーの行は ErrorRecord になるので、元の文字列を取り出す
             if ($_ -is [System.Management.Automation.ErrorRecord]) {
                 $text = if ($null -ne $_.TargetObject) { "$($_.TargetObject)" } else { $_.Exception.Message }
@@ -92,7 +92,7 @@ if (-not (Test-Path -LiteralPath $inventoryDir)) {
 # 1. 脆弱性データの更新
 $updateCode = 0
 if (-not $SkipDbUpdate) {
-    $updateCode = Invoke-Tool (@('db-update', '--inventory-dir', $inventoryDir) + $common)
+    $updateCode = Invoke-Tool (@('update', '--inventory-dir', $inventoryDir) + $common)
     if ($updateCode -ne 0) { Write-Log ('注意: 脆弱性データの更新に失敗したものがあります（終了コード {0}）。前回のデータで照合します' -f $updateCode) }
 }
 
@@ -114,7 +114,7 @@ $name = Get-Date -Format 'yyyy-MM-dd'
 if (Test-Path -LiteralPath (Join-Path $reportsDir $name)) { $name = Get-Date -Format 'yyyy-MM-dd_HHmmss' }
 $outDir = Join-Path $reportsDir $name
 
-$arguments = @('run', '--inventory-dir', $inventoryDir, '--advisory', $advisory.FullName, '--out-dir', $outDir,
+$arguments = @('check', '--inventory-dir', $inventoryDir, '--advisory', $advisory.FullName, '--out-dir', $outDir,
     '--cache-dir', (Join-Path $BaseDir 'cache')) + $common
 if (Test-Path -LiteralPath $envMaster) { $arguments += @('--env-master', $envMaster) }
 else { Write-Log ('注意: 環境マスタがありません（{0}）。すべての環境を internal として扱い、回収漏れも検出できません' -f $envMaster) }

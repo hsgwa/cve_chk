@@ -65,7 +65,7 @@ def build_sbom(env: EnvInventory) -> dict | None:
         "serialNumber": f"urn:uuid:{uuid.uuid4()}",
         "version": 1,
         "metadata": {
-            "tools": [{"vendor": "vuln-triage", "name": "sbom_builder"}],
+            "tools": [{"vendor": "zk", "name": "sbom_builder"}],
             "component": {"type": "application", "name": env.name, "bom-ref": f"env:{env.name}"},
         },
         "components": components,

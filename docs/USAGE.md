@@ -7,7 +7,7 @@
 | [1. セットアップ（管理 PC）](#1-セットアップ管理-pc) | インストール、脆弱性データの取得と更新、調査をまとめて実行するスクリプト |
 | [2. 回収（オフライン環境）](#2-回収オフライン環境) | 対象マシンに残さない方法（フォルダ 1 つで完結）、Linux / Windows / 商用ソフトでの回収、zip・jar・war などのファイル（Lambda など）の調べ方、回収物の置き方 |
 | [3. 入力ファイル](#3-入力ファイル) | 環境マスタと会社公表リストの書き方 |
-| [4. 実行](#4-実行) | `check-inputs` と `run`、主なオプション |
+| [4. 実行](#4-実行) | `preview` と `check`、主なオプション |
 | [5. 出力](#5-出力) | レポートのシート、影響有無の意味、社内ランクと対応期限 |
 | [6. この結果の限界](#6-この結果の限界) | 取りこぼしうるもの、判定の限界、照合の精度 |
 | [7. Trivy を使う場合（任意）](#7-trivy-を使う場合任意) | |
@@ -16,43 +16,57 @@
 
 ## 1. セットアップ（管理 PC）
 
-Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.7.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
+Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.8.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
 
 ```
 pip install -e .
 ```
 
+`zk` コマンドが使えるようになります（パッケージ名は `zeijaku-kakunin`）。
+
+| コマンド | すること |
+|---|---|
+| `zk update` | 脆弱性データを最新にする |
+| `zk check` | 照合してレポートを出す |
+| `zk preview` | 入力（回収物と会社公表リスト）の読み込み結果だけを見る（判定はしない） |
+| `zk scan-file` | zip・jar・war などのファイルの中を調べて、回収物として置く |
+| `zk export-sbom` | Windows の回収物から SBOM を書き出す（Trivy を使う場合） |
+
+- `zk` が見つからない場合は、pip が表示した場所（例 `%APPDATA%\Python\Python3xx\Scripts`）を PATH に足すか、`python -m zeijaku_kakunin` で実行します。
+- 別のツールの `zk`（同名のメモ用のツールなど）が入っている場合は、同じ働きの長い名前 `zeijaku-kakunin` を使います。
+- 0.7.0 までの名前（`vuln-triage`、`db-update`、`run`、`check-inputs`、`scan-archive`、`build-sbom`）もしばらく使えます（使うと新しい名前を案内します）。
+
 動作確認（同梱のサンプルと、サンプル用の小さな脆弱性データで動きます。ネット接続も不要）:
 
 ```
-vuln-triage run --inventory-dir examples/inventory --env-master examples/env_master.csv ^
+zk check --inventory-dir examples/inventory --env-master examples/env_master.csv ^
   --advisory examples/advisory_list.xlsx --db-dir examples/vulndb ^
   --cache-dir examples/cache --offline --base-date 2026-11-20 --out-dir out
 ```
 
-### 脆弱性データの取得と更新（db-update）
+### 脆弱性データの取得と更新（update）
 
 CVE の照合は、ダウンロードして手元に置いた脆弱性データだけで行います。**初回**は、回収データを置いてから次を実行します。
 
 ```
-python -m vuln_triage db-update --inventory-dir inventory
+zk update --inventory-dir inventory
 ```
 
 回収データに出てくるパッケージの種類を見て、必要なデータだけを取得し、`vulndb/` に照合用の索引（SQLite）を作ります。
 
-**2 回目以降は、照合の前に実行します**（下の `run_check.ps1` は自動で実行します）。
+**2 回目以降は、照合の前に実行します**（下の `check_all.ps1` は自動で実行します）。
 
 ```
-python -m vuln_triage db-update                              # 取得済みのデータをすべて更新
-python -m vuln_triage db-update --inventory-dir inventory    # 新しく出てきたエコシステムも追加
+zk update                              # 取得済みのデータをすべて更新
+zk update --inventory-dir inventory    # 新しく出てきたエコシステムも追加
 ```
 
 - 2 回目以降の更新は**差分**です。OSV.dev が公開している変更一覧（`modified_id.csv`）を見て、前回から変わった記録だけを取り直します。Maven の場合で 1 日分あたり数百 KB 程度です。
 - Amazon Linux は、公式リポジトリの updateinfo が前回と同じなら、ダウンロード自体を省きます。
 - `config.yaml` の `vulndb.full_refresh_days`（既定 7 日）ごとに全件を取り直して、ずれを防ぎます。差分が `max_delta_records`（既定 3000 件）を超えた日も全件を取り直します。`--full` を付けると、いつでも全件を取り直せます。
 - 更新に失敗したデータは、前回の内容のまま残ります（終了コード 1）。次回の更新で取り直されます。
-- 最後の更新から 1 日（`vulndb.max_age_days`）を超えたデータで `run` すると、サマリに「更新が古くなっています」と出ます。
-- `python -m vuln_triage` は `vuln-triage` と同じです。pip が作る `vuln-triage.exe` を使わずに済みます。
+- 最後の更新から 1 日（`vulndb.max_age_days`）を超えたデータで `check` すると、サマリに「更新が古くなっています」と出ます。
+- `zk` は `zk` と同じです。pip が作る `zk.exe` を使わずに済みます。
 
 | データ | 取得元 | 初回（全件）の大きさの目安 |
 |---|---|---|
@@ -61,18 +75,18 @@ python -m vuln_triage db-update --inventory-dir inventory    # 新しく出て�
 | Ubuntu / Debian / RHEL / Rocky / AlmaLinux の OS パッケージ | OSV.dev | Ubuntu 784 MB、Debian 80 MB、Red Hat 28 MB |
 | CVSS の点数（Amazon Linux 用） | OSV.dev の Debian データ（OS パッケージがある場合に自動で取得） | 80 MB |
 
-- 取得したデータに、本ツールが分類していない系統（例: データ提供元が新しく追加したもの）があると、`db-update` が警告を出します。その系統にしか修正情報が無い脆弱性は見落とすので、[DEFECTS.md](DEFECTS.md) の手順で確認してください。
+- 取得したデータに、本ツールが分類していない系統（例: データ提供元が新しく追加したもの）があると、`update` が警告を出します。その系統にしか修正情報が無い脆弱性は見落とすので、[DEFECTS.md](DEFECTS.md) の手順で確認してください。
 - 管理 PC から次のホストへ HTTPS（Amazon Linux 2 は HTTP）で出られる必要があります: `osv-vulnerabilities.storage.googleapis.com`、`amazonlinux.default.amazonaws.com`、`cdn.amazonlinux.com`、`al2023-repos-*.s3.dualstack.*.amazonaws.com`。社内プロキシは環境変数 `HTTPS_PROXY` / `HTTP_PROXY` で指定します。
 - 送るのはダウンロードの要求だけで、パッケージ名やホスト名などの回収データは外部に送りません。
-- 管理 PC から取得できない場合は、別の PC のブラウザで `https://osv-vulnerabilities.storage.googleapis.com/<エコシステム名>/all.zip`（例 `Maven/all.zip`）を保存し、`db-update --import Maven=Maven.zip` で取り込めます（この場合は差分更新はできず、次回の更新は全件になります）。
-- 取得済みのデータと最終更新日時は `python -m vuln_triage db-update --list` で確認できます。
+- 管理 PC から取得できない場合は、別の PC のブラウザで `https://osv-vulnerabilities.storage.googleapis.com/<エコシステム名>/all.zip`（例 `Maven/all.zip`）を保存し、`update --import Maven=Maven.zip` で取り込めます（この場合は差分更新はできず、次回の更新は全件になります）。
+- 取得済みのデータと最終更新日時は `zk update --list` で確認できます。
 
-### 調査をまとめて実行する（run_check.ps1）
+### 調査をまとめて実行する（check_all.ps1）
 
 調査のたびに、管理 PC で次の 1 つを実行します。脆弱性データの更新、照合、レポートの作成を順に行います。
 
 ```
-powershell -ExecutionPolicy Bypass -File scripts\run_check.ps1 -BaseDir D:\vuln
+powershell -ExecutionPolicy Bypass -File scripts\check_all.ps1 -BaseDir D:\vuln
 ```
 
 作業フォルダ（`-BaseDir`）の決まった場所にあるデータを使います。
@@ -99,7 +113,7 @@ D:\vuln\
 | `-Python` | python.exe の場所（省略時は PATH の python） |
 | `-SkipDbUpdate` | 脆弱性データの更新をしない |
 
-`db-update` と `run` を個別に実行することもできます（上の db-update と、4 章）。
+`update` と `check` を個別に実行することもできます（上の update と、4 章）。
 
 Trivy（`trivy.exe`）を使いたい場合は `--scanner trivy` で従来どおり使えます（7 章参照）。
 
@@ -193,15 +207,15 @@ powershell -ExecutionPolicy Bypass -File collect_win.ps1 -AllDrives
 サーバーで回収せずに、成果物のファイルを管理 PC で直接調べられます。Lambda のデプロイ用 zip やレイヤー、アプリケーションの war や fat jar（Spring Boot など）、Python の wheel が対象です。syft も Linux も不要で、ファイルを展開せずに読みます。
 
 ```
-vuln-triage scan-archive function.zip layer-1.zip --inventory-dir inventory --env lambda-my-function
-vuln-triage scan-archive app.war batch.jar --inventory-dir inventory
-vuln-triage scan-archive D:\extracted\my-function --inventory-dir inventory --env lambda-my-function
+zk scan-file function.zip layer-1.zip --inventory-dir inventory --env lambda-my-function
+zk scan-file app.war batch.jar --inventory-dir inventory
+zk scan-file D:\extracted\my-function --inventory-dir inventory --env lambda-my-function
 ```
 
-- 調べたものは `inventory\<環境名>\archive_inventory.json` に置かれ、`run`（または `run_check.ps1`）でほかの環境と同じように照合されます。環境マスタにも環境名を登録してください（公開区分でランクが決まり、回収漏れも検出できます）。
+- 調べたものは `inventory\<環境名>\archive_inventory.json` に置かれ、`check`（または `check_all.ps1`）でほかの環境と同じように照合されます。環境マスタにも環境名を登録してください（公開区分でランクが決まり、回収漏れも検出できます）。
 - `--env` を付けると、指定したものをすべて 1 つの環境にまとめます（関数とそのレイヤーなど）。付けなければ、ファイル・フォルダごとに、その名前の環境を作ります。
 - 見つけるもの:
-  - Java: `META-INF/maven/.../pom.properties`。zip・war・ear の中の jar、jar の中の jar（`BOOT-INF/lib/`、`WEB-INF/lib/` など）もたどる（4 段まで）。pom.properties の無い jar は MANIFEST かファイル名から推定し、SHA-1 を記録する（`run --resolve-hashes` で Maven Central に照会できる）
+  - Java: `META-INF/maven/.../pom.properties`。zip・war・ear の中の jar、jar の中の jar（`BOOT-INF/lib/`、`WEB-INF/lib/` など）もたどる（4 段まで）。pom.properties の無い jar は MANIFEST かファイル名から推定し、SHA-1 を記録する（`check --resolve-hashes` で Maven Central に照会できる）
   - Python: `*.dist-info/METADATA`、`*.egg-info/PKG-INFO`（Lambda の zip の直下、レイヤーの `python/lib/python3.x/site-packages/` など）
   - npm: `node_modules/<名前>/package.json`
   - .NET: `*.deps.json`
@@ -250,7 +264,7 @@ batch-emr,internal,分析基盤
 
 会社の Excel をそのまま渡せます。見出しの対応は `config.yaml` の `advisory_input.columns` に書きます（シート名、見出し行の位置、結合セルの扱いも設定できます）。
 
-読み落としを防ぐため、次の場合は警告を出します（実行時の画面とサマリシート。`check-inputs --advisory` でも確認できます）。
+読み落としを防ぐため、次の場合は警告を出します（実行時の画面とサマリシート。`preview --advisory` でも確認できます）。
 
 - 読むのは 1 シートだけです（既定は先頭のシート）。**データのある他のシートがあれば警告します。** 通達が複数のシートにある場合は、`advisory_input.sheet` でシートを指定して、シートごとに実行してください。
 - 結合セルは、既定で値を結合範囲の各行に引き継ぎます（`fill_merged: true`）。`false` にした場合、縦に結合したセルがあれば警告します。
@@ -281,15 +295,15 @@ batch-emr,internal,分析基盤
 ## 4. 実行
 
 ```
-python -m vuln_triage check-inputs --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx
-python -m vuln_triage run          --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx --out-dir out
+zk preview --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx
+zk check          --inventory-dir inventory --env-master env_master.csv --advisory 通達.xlsx --out-dir out
 ```
 
-ふだんは 1 章の `run_check.ps1` でまとめて実行します。個別に実行する場合は、`run` の前に `python -m vuln_triage db-update --inventory-dir inventory` で脆弱性データを更新してください（回収データに新しい種類のパッケージがあれば、そのデータも取得します）。
+ふだんは 1 章の `check_all.ps1` でまとめて実行します。個別に実行する場合は、`check` の前に `zk update --inventory-dir inventory` で脆弱性データを更新してください（回収データに新しい種類のパッケージがあれば、そのデータも取得します）。
 
-`check-inputs` は判定をせず、回収データの読み込み結果と、通達の製品名が回収データのどれに当たったかを表示します。**新しい通達を取り込んだら、まずこれで「該当なし」が表記ゆれでないかを確認してください。**
+`preview` は判定をせず、回収データの読み込み結果と、通達の製品名が回収データのどれに当たったかを表示します。**新しい通達を取り込んだら、まずこれで「該当なし」が表記ゆれでないかを確認してください。**
 
-主なオプション（`vuln-triage run --help` で全件）:
+主なオプション（`zk check --help` で全件）:
 
 | オプション | 内容 |
 |---|---|
@@ -359,7 +373,7 @@ Excel の 1 シートには、ランク・期限の順で先頭 10 万行まで�
   - 実機（Ubuntu 24.04、Amazon Linux 2 / 2023）の SBOM で、現在の Grype と比べました。Ubuntu は 27,532 件が一致し、本ツールだけの検出は Go の版の表記の違いだけでした。Grype だけの検出は、実行ファイル自体の照合（カーネル、node、python）、修正版がまだ無い CVE、Grype 側の当てはめすぎ（Amazon Linux 2 の extras）で、理由を 1 件ずつ確かめています。
   - 実行ファイル自体（ruby・python・node のバイナリ、カーネルのイメージなど）の照合は行いません。
 - **Amazon Linux**: Amazon Linux 2 は core と extras の全トピック（kernel-5.4 / 5.10 / 5.15、nginx1、php8.x など 73 件）、Amazon Linux 2023 は core の情報を取得します。x86_64 の情報で、arm64 にも同じ版番号のため流用します。EMR 独自のパッケージは含みません。公式情報に CVSS が無いため、Debian のデータの同じ CVE から点数を引いています（見つからなければ「CVSS 不明」で Rank-C、備考に Amazon の深刻度を表示）。
-- **実機での確認**（[COMPARISON.md](COMPARISON.md) の「実機での確認」）: Windows 11（管理者でない実行、ARM64）での回収、Ubuntu 24.04 と Amazon Linux 2 / 2023 での回収（スクリプトと syft だけの両方）、`db-update` の全件取得と差分更新、MSRC に接続した Windows OS の判定を通して確かめました。Windows Server 2025（管理者）での回収と照合は CI で毎回確かめています（`.github/workflows/ci.yml`）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
+- **実機での確認**（[COMPARISON.md](COMPARISON.md) の「実機での確認」）: Windows 11（管理者でない実行、ARM64）での回収、Ubuntu 24.04 と Amazon Linux 2 / 2023 での回収（スクリプトと syft だけの両方）、`update` の全件取得と差分更新、MSRC に接続した Windows OS の判定を通して確かめました。Windows Server 2025（管理者）での回収と照合は CI で毎回確かめています（`.github/workflows/ci.yml`）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
 - **`--resolve-hashes`**: Maven Central に実際に接続し、名前の分からない jar（log4j-core 2.14.1 の SHA-1）を特定して影響ありと判定できることを確かめました。
 
 ## 7. Trivy を使う場合（任意）
@@ -367,7 +381,7 @@ Excel の 1 シートには、ランク・期限の順で先頭 10 万行まで�
 `trivy.exe` を使える環境では、従来どおり Trivy で照合することもできます。
 
 ```
-vuln-triage run ... --scanner trivy [--save-trivy-json DIR] [--trivy-results-dir DIR]
+zk check ... --scanner trivy [--save-trivy-json DIR] [--trivy-results-dir DIR]
 ```
 
 `trivy.exe` は PATH に置くか、`config.yaml` の `trivy.path` に場所を書きます。注意: **syft が出す SBOM の Amazon Linux（OS 名 `amzn`）は Trivy では「未対応の OS」と扱われ、OS パッケージが照合されません**（確認済み）。Amazon Linux を含む場合は既定の `--scanner osv` を使ってください。
@@ -380,7 +394,7 @@ pytest
 python examples/make_advisory_list.py     # サンプルの会社公表リストを作り直す
 ```
 
-`examples/vulndb/` は、本物の OSV.dev / Amazon Linux のデータから、サンプルのパッケージに関係する記録だけを抜き出したものです（`db-update --import` で作成）。
+`examples/vulndb/` は、本物の OSV.dev / Amazon Linux のデータから、サンプルのパッケージに関係する記録だけを抜き出したものです（`update --import` で作成）。
 
 GitHub Actions の CI（`.github/workflows/ci.yml`）が、push のたびに単体テストと、Windows Server・Amazon Linux 2023・Ubuntu 24.04 での回収から照合までの試験を行います。変更履歴は [CHANGELOG.md](../CHANGELOG.md)、不具合の記録は [DEFECTS.md](DEFECTS.md) にあります。
 
@@ -392,12 +406,12 @@ GitHub Actions の CI（`.github/workflows/ci.yml`）が、push のたびに単�
 
 | 残るもの | 場所 | 消し方 |
 |---|---|---|
-| ツールの登録（pip） | Python の中（`vuln-triage` コマンドなど） | `python -m pip uninstall -y vuln-triage` |
+| ツールの登録（pip） | Python の中（`zk` コマンドなど） | `python -m pip uninstall -y zk` |
 | 依存ライブラリ | Python の中 | 他で使っていなければ `python -m pip uninstall -y pyyaml packaging click openpyxl et-xmlfile` |
 | ツールのフォルダ | 取得（`git clone` など）したフォルダ。中に、既定の脆弱性データ `vulndb`、Microsoft のデータのキャッシュ `cache`、出力 `out` / `work` ができる | フォルダごと削除する |
-| 作業フォルダ | `run_check.ps1 -BaseDir` に指定したフォルダ（回収物、会社公表リスト、環境マスタ、レポート、ログ、キャッシュ） | フォルダごと削除する |
+| 作業フォルダ | `check_all.ps1 -BaseDir` に指定したフォルダ（回収物、会社公表リスト、環境マスタ、レポート、ログ、キャッシュ） | フォルダごと削除する |
 | 脆弱性データ（別の場所に置いた場合） | `--db-dir` や `config.yaml` の `vulndb.dir` に指定したフォルダ | フォルダごと削除する |
 | Python | このツールのためだけに入れた場合 | Windows の「アプリ」から Python をアンインストールする |
-| （0.4.0 以前を使っていた場合）タスクスケジューラの登録 | タスク名 `vuln-triage db-update` / `vuln-triage run` | `Unregister-ScheduledTask -TaskName "vuln-triage db-update" -Confirm:$false`（`vuln-triage run` も同じ）。0.5.0 以降は登録しない |
+| （0.4.0 以前を使っていた場合）タスクスケジューラの登録 | タスク名 `zk update` / `zk check` | `Unregister-ScheduledTask -TaskName "zk update" -Confirm:$false`（`zk check` も同じ）。0.5.0 以降は登録しない |
 
 このツールは、上の表のほかにレジストリ・サービス・タスク・環境変数を変更しません。

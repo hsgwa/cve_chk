@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from vuln_triage.config import load_config
-from vuln_triage.models import Advisory, Component, EnvInventory
+from zeijaku_kakunin.config import load_config
+from zeijaku_kakunin.models import Advisory, Component, EnvInventory
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 TODAY = date(2026, 11, 20)

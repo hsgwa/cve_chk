@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vuln-triage"
-version = "0.7.0"
-description = "オフライン環境のインベントリと会社公表の脆弱性リストを突き合わせるトリアージ CLI"
+name = "zeijaku-kakunin"
+version = "0.8.0"
+description = "脆弱確認（zk）: オフライン環境のソフトの一覧と会社公表の脆弱性リストを突き合わせる CLI"
 requires-python = ">=3.10"
 license = "MIT-0"
 license-files = ["LICENSE"]
@@ -20,7 +20,10 @@ dependencies = [
 dev = ["pytest>=7"]
 
 [project.scripts]
-vuln-triage = "vuln_triage.cli:main"
+zk = "zeijaku_kakunin.cli:main"
+zeijaku-kakunin = "zeijaku_kakunin.cli:main"
+# 旧名（0.7.0 まで）。しばらく残す
+vuln-triage = "zeijaku_kakunin.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

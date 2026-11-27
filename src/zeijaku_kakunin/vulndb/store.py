@@ -134,7 +134,7 @@ def parse_modified_ids(text: str, since: str | None) -> tuple[str, list[str]]:
 
 
 def _fetch(url: str, timeout: int = 600) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": "vuln-triage"})
+    request = urllib.request.Request(url, headers={"User-Agent": "zeijaku-kakunin"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read()
 
@@ -679,7 +679,7 @@ class VulnDB:
             if archive is None:
                 path = self.dir / file
                 if not path.is_file():
-                    raise VulnDBError(f"データベースのファイルがありません: {path}（db-update をやり直してください）")
+                    raise VulnDBError(f"データベースのファイルがありません: {path}（update をやり直してください）")
                 archive = self._zips[file] = zipfile.ZipFile(path)
             try:
                 record = json.loads(archive.read(member))

@@ -1,6 +1,6 @@
 # 他の脆弱性チェッカーとの結果比較
 
-本ツール（`vuln-triage`、手元の脆弱性データで照合）の検出結果を、代表的な3つのチェッカーと、同じ SBOM で比べた記録です。
+本ツール（`zk`、手元の脆弱性データで照合）の検出結果を、代表的な3つのチェッカーと、同じ SBOM で比べた記録です。
 
 - 実施日: 2026-11-20
 - 他のツールは、比較のために検証用の環境でだけ使いました。本ツールの動作には不要です。
@@ -121,7 +121,7 @@
 | Ubuntu 24.04（GitHub Actions の実機） | `collect_linux.sh` と、syft だけ（[USAGE.md](USAGE.md) の手順） | log4j-core 2.14.1、requests 2.25.0、urllib3 1.26.4 |
 | Amazon Linux 2 / 2023（GitHub Actions 上のコンテナ） | `collect_linux.sh` | log4j-core 2.14.1、リポジトリで最も古い sudo（AL2 は 1.8.19p2-11） |
 
-脆弱性データは `db-update` で実際に取得しました（差分更新も実データで動作）。Windows OS の判定は MSRC に実際に接続しました。
+脆弱性データは `update` で実際に取得しました（差分更新も実データで動作）。Windows OS の判定は MSRC に実際に接続しました。
 
 **通達 7 件 × 5 環境の判定はすべて想定どおり**でした。Log4Shell（CVE-2021-44228）は 5 環境すべてで影響あり、Baron Samedit（CVE-2021-3156）は古い sudo の Amazon Linux 2 だけ影響あり、requests・urllib3 は Ubuntu の venv だけ影響あり、Windows OS の CVE（2026 年 11 月公開分）はビルド 10.0.26300.10075 が修正ビルド以上で影響なし、Linux は対象外、適用済みの KB は影響なしです。syft だけで回収した Ubuntu は、スクリプトで回収した Ubuntu と同じ結果でした。
 
@@ -165,8 +165,8 @@
 syft scan dir:/ --exclude ./proc --exclude ./sys --exclude ./dev -o cyclonedx-json=container.cdx.json
 
 # 本ツール
-python -m vuln_triage db-update --inventory-dir inventory      # inventory/<環境名>/container.cdx.json
-python -m vuln_triage run --inventory-dir inventory --advisory 通達.xlsx --out-dir out   # 新規検出シートに全検出
+zk update --inventory-dir inventory      # inventory/<環境名>/container.cdx.json
+zk check --inventory-dir inventory --advisory 通達.xlsx --out-dir out   # 新規検出シートに全検出
 
 # Trivy（Amazon Linux は OS 名・PURL を amazon に直した SBOM で）
 trivy sbom --format json container.cdx.json > trivy.json

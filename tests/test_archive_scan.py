@@ -1,4 +1,4 @@
-"""scan-archive: zip / jar / war / ear / whl と展開したフォルダの中のライブラリを調べる。"""
+"""scan-file: zip / jar / war / ear / whl と展開したフォルダの中のライブラリを調べる。"""
 import csv
 import hashlib
 import io
@@ -7,9 +7,9 @@ import zipfile
 
 from click.testing import CliRunner
 
-from vuln_triage.archive_scan import scan
-from vuln_triage.cli import main
-from vuln_triage.inventory import load_env_dir
+from zeijaku_kakunin.archive_scan import scan
+from zeijaku_kakunin.cli import main
+from zeijaku_kakunin.inventory import load_env_dir
 
 
 def zip_bytes(files: dict) -> bytes:
@@ -111,7 +111,7 @@ def test_scan_archive_command_and_matching(tmp_path, examples):
     layer.write_bytes(zip_bytes({"python/lib/python3.12/site-packages/urllib3-1.26.4.dist-info/METADATA":
                                  metadata("urllib3", "1.26.4")}))
     runner = CliRunner()
-    result = runner.invoke(main, ["scan-archive", str(zip_path), str(layer), "--inventory-dir", str(inventory),
+    result = runner.invoke(main, ["scan-file", str(zip_path), str(layer), "--inventory-dir", str(inventory),
                                   "--env", "lambda-my-function"])
     assert result.exit_code == 0, result.output
     assert "lambda-my-function: jar 等 1 件、Python 3 件" in result.output
@@ -123,7 +123,7 @@ def test_scan_archive_command_and_matching(tmp_path, examples):
     advisory.write_text("通達番号,CVE番号,製品名,影響バージョン\nT-1,CVE-2021-44228,log4j-core,\nT-2,,KB5034441,missing\n",
                         encoding="utf-8")
     out = tmp_path / "out"
-    result = runner.invoke(main, ["run", "--inventory-dir", str(inventory), "--advisory", str(advisory),
+    result = runner.invoke(main, ["check", "--inventory-dir", str(inventory), "--advisory", str(advisory),
                                   "--db-dir", str(examples / "vulndb"), "--cache-dir", str(examples / "cache"),
                                   "--offline", "--base-date", "2026-11-20", "--out-dir", str(out), "--no-xlsx"])
     assert result.exit_code == 0, result.output
@@ -133,6 +133,6 @@ def test_scan_archive_command_and_matching(tmp_path, examples):
 
     # --env を付けなければ、ファイルごとに別の環境になる
     other = tmp_path / "inv2"
-    result = runner.invoke(main, ["scan-archive", str(zip_path), str(layer), "--inventory-dir", str(other)])
+    result = runner.invoke(main, ["scan-file", str(zip_path), str(layer), "--inventory-dir", str(other)])
     assert result.exit_code == 0, result.output
     assert sorted(p.name for p in other.iterdir()) == ["layer", "my-function"]
