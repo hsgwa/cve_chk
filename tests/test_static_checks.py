@@ -149,3 +149,15 @@ def test_markdown_links_are_absolute_and_exist():
             if match:
                 path = match.group(2)
                 assert (ROOT / path).exists(), f"{md.name}: 無いファイルへのリンク {target}"
+
+
+def test_windows_collector_does_not_change_services_tasks_or_registry():
+    """collect_win.ps1 はサービス・タスク・レジストリを変えない。足跡の試験では Windows Update が切り替える
+    サービスの開始の種類を比べないので、その分をここで確かめる。"""
+    import re
+    text = (ROOT / "collectors" / "collect_win.ps1").read_text(encoding="utf-8-sig")
+    forbidden = (r"(Set|New|Start|Stop|Restart|Remove|Suspend)-Service", r"\bsc(\.exe)?\s+(config|create|start|stop|delete)",
+                 r"(Register|Set|Unregister|Enable|Disable|Start)-ScheduledTask", r"schtasks",
+                 r"(Set|New|Remove|Rename)-ItemProperty", r"\breg(\.exe)?\s+(add|delete|import)", r"New-Item\s+[^\n]*HK(LM|CU):")
+    for pattern in forbidden:
+        assert not re.search(pattern, text, re.IGNORECASE), pattern

@@ -13,6 +13,7 @@
   - PowerShell が起動のたびに書くファイル（StartupProfileData-*）
   - ユーザーのレジストリの記録（ntuser.dat*、UsrClass.dat*）
   - エクスプローラーの縮小版のキャッシュ（thumbcache_*）、ストアアプリの設定（AppData\Local\Packages\）
+  - Windows Update と BITS のファイル・サービスの開始の種類、OneSettings、TokenBroker（OS が裏で書き換える）
 
 使い方: footprint_windows.ps1 -Collector <collect_win.ps1> -Dest <回収物のコピー先> -ScanRoots <走査するフォルダ>...
 #>
@@ -26,7 +27,12 @@ $ErrorActionPreference = 'Stop'
 $tool = 'C:\vuln-collect'
 $control = 'C:\vuln-footprint-control'
 $ignoreNames = @('StartupProfileData-*', 'ntuser.dat*', 'UsrClass.dat*', 'thumbcache_*')
-$ignorePaths = @('*\AppData\Local\Packages\*')
+$ignorePaths = @('*\AppData\Local\Packages\*',
+    # Windows Update とその配信（BITS）、設定の取得、サインインのトークン。OS がいつでも裏で書き換える（CI で確認）
+    '*\ProgramData\Microsoft\Network\Downloader\*', '*\ProgramData\USOPrivate\*', '*\ProgramData\USOShared\*',
+    '*\ProgramData\Microsoft\Windows\OneSettings\*', '*\AppData\Local\Microsoft\TokenBroker\*')
+# Windows Update が開始の種類を切り替えるサービス（回収スクリプトはサービスに触れない。静的な検査で確認）
+$ignoreServices = @('BITS', 'wuauserv', 'UsoSvc', 'DoSvc', 'WaaSMedicSvc')
 
 function Test-Ignored([System.IO.FileInfo]$File) {
     foreach ($pattern in $ignoreNames) { if ($File.Name -like $pattern) { return $true } }
@@ -48,7 +54,8 @@ function Get-Snapshot {
                      'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall') {
         Get-ChildItem -Path $key -ErrorAction SilentlyContinue | ForEach-Object { $items['R ' + $_.Name] = '' }
     }
-    Get-Service | ForEach-Object { $items['S ' + $_.Name] = [string]$_.StartType }
+    Get-Service | Where-Object { $ignoreServices -notcontains $_.Name } |
+        ForEach-Object { $items['S ' + $_.Name] = [string]$_.StartType }
     Get-ScheduledTask | ForEach-Object { $items['T ' + $_.TaskPath + $_.TaskName] = '' }
     return $items
 }
