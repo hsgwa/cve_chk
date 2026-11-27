@@ -5,13 +5,14 @@
 | 章 | 内容 |
 |---|---|
 | [1. セットアップ（管理 PC）](#1-セットアップ管理-pc) | インストール、脆弱性データの取得と更新、調査をまとめて実行するスクリプト |
-| [2. 回収（オフライン環境）](#2-回収オフライン環境) | Linux / Windows / 商用ソフト / Lambda での回収と、回収物の置き方 |
+| [2. 回収（オフライン環境）](#2-回収オフライン環境) | 対象マシンに残さない方法（フォルダ 1 つで完結）、Linux / Windows / 商用ソフト / Lambda での回収、回収物の置き方 |
 | [3. 入力ファイル](#3-入力ファイル) | 環境マスタと会社公表リストの書き方 |
 | [4. 実行](#4-実行) | `check-inputs` と `run`、主なオプション |
 | [5. 出力](#5-出力) | レポートのシート、影響有無の意味、社内ランクと対応期限 |
 | [6. この結果の限界](#6-この結果の限界) | 取りこぼしうるもの、判定の限界、照合の精度 |
 | [7. Trivy を使う場合（任意）](#7-trivy-を使う場合任意) | |
 | [8. 開発](#8-開発) | テストと CI |
+| [9. アンインストール（管理 PC）](#9-アンインストール管理-pc) | 管理 PC に残るものと消し方 |
 
 ## 1. セットアップ（管理 PC）
 
@@ -104,6 +105,22 @@ Trivy（`trivy.exe`）を使いたい場合は `--scanner trivy` で従来どお
 
 ## 2. 回収（オフライン環境）
 
+### 対象マシンに残さない（フォルダ 1 つで完結）
+
+回収スクリプトが書き込むのは、**スクリプトを置いたフォルダの中だけ**です。回収物を取り出したら、そのフォルダを消せば対象マシンは元の状態に戻ります（アンインストールの手順はこれだけです）。
+
+| | 手順 |
+|---|---|
+| Linux | 1. `/opt/vuln-collect` などのフォルダに `collect_linux.sh` と syft の tar.gz・チェックサムを置く<br>2. `sudo bash /opt/vuln-collect/collect_linux.sh`<br>3. `/opt/vuln-collect/out/<ホスト名>/` を持ち出す<br>4. `sudo rm -rf /opt/vuln-collect` |
+| Windows | 1. `C:\vuln-collect` などのフォルダに `collect_win.ps1` を置く<br>2. `powershell -ExecutionPolicy Bypass -File C:\vuln-collect\collect_win.ps1`<br>3. `C:\vuln-collect\out\<ホスト名>\` を持ち出す<br>4. `C:\vuln-collect` を削除する |
+
+- Linux では、syft の展開・一時ファイル・キャッシュもすべてフォルダの中（`.work/`）に置き、終わると消します。
+- 何もインストールせず、レジストリ・サービス・タスク・設定ファイルを変えません。ファイルは読むだけで、Windows では他のプログラムの書き込み・削除を妨げない開き方をします。
+- 出力先の空きが 500 MB 未満なら、何も書かずに止めます（終了コード 4。Linux は `MIN_FREE_MB`、Windows は `-MinFreeMB` で変更）。
+- **CI で毎回確かめています。** Amazon Linux 2023・Ubuntu 24.04 のコンテナではファイルシステム全体、Windows Server ではユーザーのプロファイル・一時フォルダ・ProgramData・インストール済みソフト・サービス・タスクの一覧を、実行前とフォルダ削除後で比べ、差が無いことを確かめます（`tests/e2e/footprint_*.*`）。
+- 残るもの: OS が記録するもの（Linux の sudo のログやシェルの履歴、Windows のイベントログ、PowerShell が起動のたびに書くファイル）。これはこのツールに限らず、コマンドを実行すれば記録されます。
+- 例外: 個別製品の版取得で `cmd`（コマンドを実行して版を読む）を使う場合、そのコマンドが書き込むものは対象外です（例: `java -version` は `/tmp/hsperfdata_<ユーザー名>` を作ることがある）。`cmd` を足すときは、検証機でそのコマンドが何を書くかを確かめてください。
+
 ### Linux（EC2、EMR の各ノード）
 
 持ち込むもの: `collectors/collect_linux.sh` と、[syft](https://github.com/anchore/syft/releases) の `syft_<版>_linux_amd64.tar.gz`（Graviton なら `linux_arm64`）、同じリリースの `syft_<版>_checksums.txt`。同じフォルダに置いて実行します。
@@ -121,6 +138,8 @@ sudo bash collect_linux.sh
 - EMR はクラスタが動いているうちに、マスター 1 台とコア 1 台で実行してください。
 - **既定で優先度を最低にして実行します**（`nice -n 19`、`ionice -c3`）。業務処理が優先され、その分だけ回収に時間がかかります。通常の優先度にするには `LOW_PRIORITY=0` を付けます。
 - syft が 3 時間で終わらなければ打ち切り、syft の失敗として記録します（`SYFT_TIMEOUT_SEC` で変更）。
+- syft のメモリの目安を 1 GiB にしています（`SYFT_MEMORY_LIMIT`。Go の `GOMEMLIMIT`）。超えそうになるとメモリの回収を早めます。止めるものではないので、それ以上使うこともあります。
+- 終了コード: 0 = 成功、1 = 出力先・作業フォルダを作れない、3 = syft が失敗（`os_info.json` は出る）、4 = 空き容量が足りない。
 - サーバーへの影響と、本番の前に確かめることは [OPERATIONS.md](OPERATIONS.md) にあります。
 
 #### スクリプトを使わず、syft だけで回収する場合
@@ -137,6 +156,7 @@ sudo SYFT_CHECK_FOR_APP_UPDATE=false ./syft scan dir:/ \
 ```
 
 - 古い syft には `scan` が無いので、その場合は `./syft dir:/ ...` と書きます。
+- **この方法では、syft が一時ファイルやキャッシュをフォルダの外（`/tmp` やホームフォルダ）に作ることがあります。** 対象マシンに残さないことを確かめているのは `collect_linux.sh` を使う場合です。
 - NFS などネットワーク上の領域は自動では除外されません。`findmnt -t nfs,nfs4,cifs,fuse.s3fs,lustre -o TARGET` で場所を確かめ、`--exclude './<場所>/**'` を足してください。
 - 管理 PC では `inventory/<環境名>/cdx_syft.json` に置きます（ファイル名は `*.json` なら何でもかまいません）。
 
@@ -160,6 +180,7 @@ powershell -ExecutionPolicy Bypass -File collect_win.ps1 -AllDrives
 
 - `out\<ホスト名>\` に `inventory.json` と `collect.log` ができます。
 - 既定で CPU の優先度を「通常以下」にして実行します（`-NormalPriority` で通常）。
+- 終了コード: 0 = 成功、4 = 空き容量が足りない（`-MinFreeMB` で変更）。
 - 既定の走査対象は `Program Files`、`Program Files (x86)`、`ProgramData` です。**アプリを別の場所に置いている場合は `-ScanRoots` で指定するか `-AllDrives` を付けてください。**
 - 取得するもの: OS のビルド番号、適用済み KB、インストール済みソフト、exe / dll のバージョン情報、jar / war / ear の中身（入れ子も）、Python・npm・NuGet のパッケージ、実行中のプロセスの場所。
 
@@ -337,3 +358,19 @@ python examples/make_advisory_list.py     # サンプルの会社公表リスト
 GitHub Actions の CI（`.github/workflows/ci.yml`）が、push のたびに単体テストと、Windows Server・Amazon Linux 2023・Ubuntu 24.04 での回収から照合までの試験を行います。変更履歴は [CHANGELOG.md](../CHANGELOG.md)、不具合の記録は [DEFECTS.md](DEFECTS.md) にあります。
 
 文書の図は `docs/images/*.drawio.png` です。図のデータを埋め込んだ PNG なので、draw.io（デスクトップ版、または https://app.diagrams.net ）でそのまま開いて編集し、同じ形式（PNG、「図のコピーを含める」をオン）で保存し直せます。
+
+## 9. アンインストール（管理 PC）
+
+管理 PC に残るものと、消す手順です。**レポート（作業フォルダの `reports` など）は対応の証跡なので、必要なら先に保管してください。**
+
+| 残るもの | 場所 | 消し方 |
+|---|---|---|
+| ツールの登録（pip） | Python の中（`vuln-triage` コマンドなど） | `python -m pip uninstall -y vuln-triage` |
+| 依存ライブラリ | Python の中 | 他で使っていなければ `python -m pip uninstall -y pyyaml packaging click openpyxl et-xmlfile` |
+| ツールのフォルダ | 取得（`git clone` など）したフォルダ。中に、既定の脆弱性データ `vulndb`、Microsoft のデータのキャッシュ `cache`、出力 `out` / `work` ができる | フォルダごと削除する |
+| 作業フォルダ | `run_check.ps1 -BaseDir` に指定したフォルダ（回収物、会社公表リスト、環境マスタ、レポート、ログ、キャッシュ） | フォルダごと削除する |
+| 脆弱性データ（別の場所に置いた場合） | `--db-dir` や `config.yaml` の `vulndb.dir` に指定したフォルダ | フォルダごと削除する |
+| Python | このツールのためだけに入れた場合 | Windows の「アプリ」から Python をアンインストールする |
+| （0.4.0 以前を使っていた場合）タスクスケジューラの登録 | タスク名 `vuln-triage db-update` / `vuln-triage run` | `Unregister-ScheduledTask -TaskName "vuln-triage db-update" -Confirm:$false`（`vuln-triage run` も同じ）。0.5.0 以降は登録しない |
+
+このツールは、上の表のほかにレジストリ・サービス・タスク・環境変数を変更しません。

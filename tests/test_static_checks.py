@@ -116,3 +116,19 @@ def test_powershell_array_parameters_are_split(script):
     for name in re.findall(r"\[string\[\]\]\s*\$(\w+)", block.group(1) if block else ""):
         assert re.search(rf"\${name}\s*\|\s*ForEach-Object\s*\{{\s*\$_\s*-split\s*'\[,", text), \
             f"{script.name}: -{name} をカンマで分けていない"
+
+
+def test_collectors_do_not_block_or_delete_outside_their_folder():
+    """対象マシンに影響を与えないための約束（#45、#46 と同じ種類の不具合を防ぐ）。
+
+    - Windows: 対象のファイルは他のプロセスの書き込み・削除を妨げない開き方（Open-Shared）で読む。
+      OpenRead や、パスを渡す StreamReader / Get-Content は書き込みを妨げる。
+    - Linux: 利用者が指定できるフォルダ（WORK_DIR / OUT_DIR）そのものを消さない。消すのは自分で作った作業フォルダだけ。
+    """
+    win = (ROOT / "collectors" / "collect_win.ps1").read_text(encoding="utf-8-sig")
+    for bad in ("OpenRead(", "StreamReader($Path", "Get-Content -LiteralPath $Path", "Get-Content -LiteralPath $file"):
+        assert bad not in win, f"collect_win.ps1: {bad}"
+    linux = (ROOT / "collectors" / "collect_linux.sh").read_text(encoding="utf-8")
+    for bad in ('rm -rf "$WORK_DIR"', 'rm -rf "$OUT_DIR"', 'rm -rf "$SCRIPT_DIR'):
+        assert bad not in linux, f"collect_linux.sh: {bad}"
+    assert 'rm -rf "$RUN_WORK"' in linux and "mktemp -d" in linux

@@ -11,6 +11,13 @@ collect_win.ps1 - Windows のインベントリ回収（exe の持ち込み不�
         .\out\<ホスト名>\collect.log      実行ログ
 回収:   out\<ホスト名>\ フォルダごと管理 PC の <inventory-dir>\ 配下へコピー
 
+対象マシンに残すもの: このスクリプトが書き込むのは、スクリプトを置いたフォルダの out\ の中だけ
+    （-OutDir を指定した場合はそのフォルダ）。レジストリ・サービス・タスクは変更しない。ファイルは読むだけで、
+    他のプログラムの書き込み・削除を妨げない開き方をする。回収が終わったら、このフォルダごと消せば元の状態に戻る。
+    Windows が記録するもの（イベントログなど）は残る。個別製品の cmd で書いたコマンドが書き込むものは対象外。
+
+終了コード: 0 = 成功、4 = 空き容量が足りない（何も書かずに止める）
+
 取得するもの:
     OS のビルド番号 / 適用済み KB / インストール済みソフト（レジストリ）/
     exe・dll のバージョン情報 / jar・war・ear の中身（入れ子も）/
@@ -30,7 +37,9 @@ param(
     # 入れ子になった jar をたどる深さ
     [int]$MaxNestDepth = 3,
     # 通常の優先度で実行する（既定は「通常以下」にして業務処理を優先させる）
-    [switch]$NormalPriority
+    [switch]$NormalPriority,
+    # 出力先のドライブの空きがこれ（MB）未満なら、何も書かずに止める
+    [int]$MinFreeMB = 500
 )
 
 # ---- 個別製品の版取得 --------------------------------------------------------
@@ -58,6 +67,15 @@ $ErrorActionPreference = 'Continue'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $hostName = [System.Environment]::MachineName
 if (-not $OutDir) { $OutDir = Join-Path (Join-Path $scriptDir 'out') $hostName }
+# 空き容量（足りなければ何も書かずに止める）
+try {
+    $drive = New-Object System.IO.DriveInfo ([System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($OutDir)))
+    $freeMB = [int]($drive.AvailableFreeSpace / 1MB)
+    if ($freeMB -lt $MinFreeMB) {
+        Write-Host ('空き容量が足りないため止めます: {0} の空き {1} MB（{2} MB 以上が必要。-MinFreeMB で変更）' -f $drive.Name, $freeMB, $MinFreeMB)
+        exit 4
+    }
+} catch { }
 [void][System.IO.Directory]::CreateDirectory($OutDir)
 $logPath = Join-Path $OutDir 'collect.log'
 Set-Content -Path $logPath -Value '' -Encoding UTF8
@@ -225,10 +243,22 @@ function Read-EntryText($Entry) {
     try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
 }
 
+# 他のプロセスの読み書き・削除・名前の変更を妨げない開き方。業務アプリが更新・再配置中のファイルでも邪魔をしない
+# （OpenRead は書き込みを許さないため、読んでいる間に jar を上書きしようとした業務アプリが失敗しうる）
+function Open-Shared([string]$Path) {
+    return New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read,
+        ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+}
+
+function Read-SharedText([string]$Path) {
+    $reader = New-Object System.IO.StreamReader((Open-Shared $Path), [System.Text.Encoding]::UTF8)
+    try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+}
+
 function Get-Sha1([string]$Path) {
     try {
         $sha = [System.Security.Cryptography.SHA1]::Create()
-        $stream = [System.IO.File]::OpenRead($Path)
+        $stream = Open-Shared $Path
         try { return ([System.BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToLower() }
         finally { $stream.Dispose(); $sha.Dispose() }
     } catch { return '' }
@@ -307,7 +337,7 @@ function Read-Archive([System.IO.Stream]$Stream, [string]$DisplayPath, [int]$Dep
 function Read-MetadataFile([string]$Path) {
     # Python の METADATA / PKG-INFO から Name と Version を読む
     $name = ''; $version = ''
-    $reader = New-Object System.IO.StreamReader($Path, [System.Text.Encoding]::UTF8)
+    $reader = New-Object System.IO.StreamReader((Open-Shared $Path), [System.Text.Encoding]::UTF8)
     try {
         for ($i = 0; $i -lt 60; $i++) {
             $line = $reader.ReadLine()
@@ -326,7 +356,7 @@ function Invoke-File([string]$Path) {
     try {
         if ($ext -eq '.jar' -or $ext -eq '.war' -or $ext -eq '.ear') {
             $counts.archives++
-            $stream = [System.IO.File]::OpenRead($Path)
+            $stream = Open-Shared $Path
             try { Read-Archive $stream $Path 0 (Get-Sha1 $Path) } finally { $stream.Dispose() }
         } elseif ($leaf -eq 'METADATA' -and $Path -match '\.dist-info[\\/]METADATA$') {
             Read-MetadataFile $Path
@@ -335,12 +365,12 @@ function Invoke-File([string]$Path) {
         } elseif ($ext -eq '.egg-info') {
             Read-MetadataFile $Path
         } elseif ($leaf -eq 'package.json' -and $Path -match '[\\/]node_modules[\\/](@[^\\/]+[\\/])?[^\\/]+[\\/]package\.json$') {
-            $json = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            $json = Read-SharedText $Path | ConvertFrom-Json
             if ($json.name -and $json.version) {
                 $nodePackages.Add([ordered]@{ name = [string]$json.name; version = [string]$json.version; path = $Path })
             }
         } elseif ($leaf -like '*.deps.json') {
-            $json = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+            $json = Read-SharedText $Path | ConvertFrom-Json
             if ($json.libraries) {
                 foreach ($prop in $json.libraries.PSObject.Properties) {
                     if ($prop.Value.type -ne 'package') { continue }
@@ -442,7 +472,7 @@ foreach ($product in $CustomProducts) {
                 $files = @(Get-Item -Path $target -ErrorAction SilentlyContinue)
                 if ($files.Count -eq 0) { Add-Custom $name 'not_found' '' $target '' }
                 foreach ($file in $files) {
-                    $text = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction Stop
+                    $text = Read-SharedText $file.FullName
                     Add-Custom $name 'found' (Get-Match $text $product.Regex) $file.FullName ''
                 }
             }

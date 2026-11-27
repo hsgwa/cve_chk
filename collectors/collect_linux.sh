@@ -13,11 +13,21 @@
 #         ./out/<ホスト名>/collect.log     実行ログ
 # 回収:   out/<ホスト名>/ フォルダごと管理 PC の <inventory-dir>/ 配下へコピー
 #
+# 対象マシンに残すもの: このスクリプトが書き込むのは、スクリプトを置いたフォルダの中だけ
+#   （out/ と、実行中だけ使う .work/。syft の一時ファイルやキャッシュも .work/ の中に置き、終わると消す）。
+#   回収が終わったら、このフォルダごと消せば元の状態に戻る（例: sudo rm -rf /opt/vuln-collect）。
+#   OS が記録するもの（sudo のログ、シェルの履歴など）は残る。個別製品の cmd で書いたコマンドが書き込むものは対象外。
+#
+# 終了コード: 0 = 成功、1 = 出力先を作れない、3 = syft が失敗（os_info.json は出る）、4 = 空き容量が足りない
+#
 # 環境変数で変更できるもの:
 #   SCAN_ROOT       走査する起点（既定 /）
 #   EXTRA_EXCLUDES  追加で除外するパターン（空白区切り。例: "./data/** ./backup/**"）
 #   OUT_DIR         出力先（既定 ./out/<ホスト名>）
-#   WORK_DIR        syft の展開先（既定 ./.syft_work。noexec の場所は不可）
+#   WORK_DIR        syft の展開と一時ファイルの置き場所（既定 ./.work。中に実行ごとのフォルダを作り、
+#                   終わるとそのフォルダだけを消す。noexec の場所は不可）
+#   MIN_FREE_MB     出力先の空き容量がこれ（MB。既定 500）未満なら、何も書かずに止める
+#   SYFT_MEMORY_LIMIT syft のメモリの目安（既定 1GiB。Go の GOMEMLIMIT。超えそうになるとメモリの回収を早める）
 #   SYFT_TARBALL    syft の tar.gz の場所（既定 スクリプトと同じフォルダから自動選択）
 #   SYFT_BIN        展開済みの syft を直接指定する場合（チェックサムは確かめない）
 #   REQUIRE_SYFT_CHECKSUM 1 ならチェックサムを確かめられないとき syft を実行しない（既定 0。一致しないときは常に実行しない）
@@ -56,7 +66,9 @@ HOST="$(hostname 2>/dev/null || echo unknown)"
 OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/out/$HOST}"
 SCAN_ROOT="${SCAN_ROOT:-/}"
 EXTRA_EXCLUDES="${EXTRA_EXCLUDES:-}"
-WORK_DIR="${WORK_DIR:-$SCRIPT_DIR/.syft_work}"
+WORK_DIR="${WORK_DIR:-$SCRIPT_DIR/.work}"
+MIN_FREE_MB="${MIN_FREE_MB:-500}"
+SYFT_MEMORY_LIMIT="${SYFT_MEMORY_LIMIT:-1GiB}"
 SYFT_BIN="${SYFT_BIN:-}"
 LOW_PRIORITY="${LOW_PRIORITY:-1}"
 SYFT_TIMEOUT_SEC="${SYFT_TIMEOUT_SEC:-10800}"
@@ -74,10 +86,34 @@ if [ "$LOW_PRIORITY" != "0" ] && [ -z "${VT_LOW_PRIORITY_APPLIED:-}" ]; then
 fi
 START_EPOCH="$(date +%s)"
 
+# ---- 空き容量（足りなければ何も書かずに止める） ------------------------------------
+CHECK_DIR="$OUT_DIR"
+while [ ! -d "$CHECK_DIR" ]; do CHECK_DIR="$(dirname "$CHECK_DIR")"; done
+FREE_MB="$(df -Pk "$CHECK_DIR" 2>/dev/null | awk 'NR == 2 {print int($4 / 1024)}')"
+if [ -n "$FREE_MB" ] && [ "$FREE_MB" -lt "$MIN_FREE_MB" ]; then
+  echo "空き容量が足りないため止めます: $CHECK_DIR の空き ${FREE_MB} MB（${MIN_FREE_MB} MB 以上が必要。MIN_FREE_MB で変更）" >&2
+  exit 4
+fi
+
 mkdir -p "$OUT_DIR" || { echo "出力先を作成できません: $OUT_DIR" >&2; exit 1; }
 LOG="$OUT_DIR/collect.log"
 : > "$LOG"
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG" >&2; }
+
+# ---- 実行中だけ使う作業フォルダ（終わったら消す。指定された WORK_DIR そのものは消さない） ----
+mkdir -p "$WORK_DIR" && RUN_WORK="$(mktemp -d "$WORK_DIR/run.XXXXXX")" || {
+  log "エラー: 作業フォルダを作成できません: $WORK_DIR"; exit 1; }
+cleanup() {
+  rm -rf "$RUN_WORK"
+  rmdir "$WORK_DIR" 2>/dev/null || true      # 空のときだけ消える（他のものが入っていれば残す）
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+mkdir -p "$RUN_WORK/tmp" "$RUN_WORK/home" "$RUN_WORK/cache" "$RUN_WORK/config"
+# syft が一時ファイル・キャッシュ・設定を作る場所を、すべて作業フォルダの中にする
+SYFT_ENV=(env HOME="$RUN_WORK/home" TMPDIR="$RUN_WORK/tmp" XDG_CACHE_HOME="$RUN_WORK/cache"
+          XDG_CONFIG_HOME="$RUN_WORK/config" XDG_DATA_HOME="$RUN_WORK/home"
+          SYFT_CHECK_FOR_APP_UPDATE=false GOMEMLIMIT="$SYFT_MEMORY_LIMIT")
 
 json_escape() {
   # JSON 文字列として安全な形にする（制御文字は空白に置き換える）
@@ -132,9 +168,11 @@ if [ -r /proc/mounts ]; then
     esac
   done < /proc/mounts
 fi
-case "$SCRIPT_DIR" in
-  "${SCAN_ROOT%/}"/*) EXCLUDES+=(".${SCRIPT_DIR#"${SCAN_ROOT%/}"}/**") ;;
-esac
+for own in "$SCRIPT_DIR" "$RUN_WORK"; do      # 自分のフォルダ（syft の展開先を含む）は走査しない
+  case "$own" in
+    "${SCAN_ROOT%/}"/*) EXCLUDES+=(".${own#"${SCAN_ROOT%/}"}/**") ;;
+  esac
+done
 for pattern in $EXTRA_EXCLUDES; do EXCLUDES+=("$pattern"); done
 
 # ---- syft --------------------------------------------------------------------
@@ -175,10 +213,9 @@ if [ -z "$SYFT_BIN" ]; then
   elif [ "$SYFT_CHECKSUM" != "ok" ] && [ "${REQUIRE_SYFT_CHECKSUM:-0}" = "1" ]; then
     SYFT_REASON="syft の tar.gz のチェックサムを確かめられないため実行しません（REQUIRE_SYFT_CHECKSUM=1）"
   else
-    rm -rf "$WORK_DIR"; mkdir -p "$WORK_DIR"
-    if tar -xzf "$TARBALL" -C "$WORK_DIR" syft 2>>"$LOG"; then
-      chmod +x "$WORK_DIR/syft" 2>/dev/null
-      SYFT_BIN="$WORK_DIR/syft"
+    if tar -xzf "$TARBALL" -C "$RUN_WORK" syft 2>>"$LOG"; then
+      chmod +x "$RUN_WORK/syft" 2>/dev/null
+      SYFT_BIN="$RUN_WORK/syft"
     else
       SYFT_REASON="syft の tar.gz を展開できません: $TARBALL"
     fi
@@ -186,8 +223,7 @@ if [ -z "$SYFT_BIN" ]; then
 fi
 
 if [ -n "$SYFT_BIN" ]; then
-  export SYFT_CHECK_FOR_APP_UPDATE=false
-  SYFT_VERSION="$("$SYFT_BIN" version 2>>"$LOG" | awk '/^Version:/ {print $2}')"
+  SYFT_VERSION="$("${SYFT_ENV[@]}" "$SYFT_BIN" version 2>>"$LOG" | awk '/^Version:/ {print $2}')"
   if [ -z "$SYFT_VERSION" ]; then
     SYFT_REASON="syft を実行できません（展開先が noexec の可能性。WORK_DIR を変更する）"
   else
@@ -196,11 +232,11 @@ if [ -n "$SYFT_BIN" ]; then
     for pattern in "${EXCLUDES[@]}"; do ARGS+=(--exclude "$pattern"); done
     LIMIT=()
     command -v timeout >/dev/null 2>&1 && [ "$SYFT_TIMEOUT_SEC" != "0" ] && LIMIT=(timeout "$SYFT_TIMEOUT_SEC")
-    ${LIMIT[@]+"${LIMIT[@]}"} "$SYFT_BIN" scan "dir:$SCAN_ROOT" "${ARGS[@]}" -o "cyclonedx-json=$SBOM" -q 2>>"$LOG"
+    ${LIMIT[@]+"${LIMIT[@]}"} "${SYFT_ENV[@]}" "$SYFT_BIN" scan "dir:$SCAN_ROOT" "${ARGS[@]}" -o "cyclonedx-json=$SBOM" -q 2>>"$LOG"
     SYFT_EXIT=$?
     if [ "$SYFT_EXIT" -ne 0 ] && [ "$SYFT_EXIT" -ne 124 ]; then
       # 古い syft には scan サブコマンドが無い
-      ${LIMIT[@]+"${LIMIT[@]}"} "$SYFT_BIN" "dir:$SCAN_ROOT" "${ARGS[@]}" -o "cyclonedx-json=$SBOM" -q 2>>"$LOG"
+      ${LIMIT[@]+"${LIMIT[@]}"} "${SYFT_ENV[@]}" "$SYFT_BIN" "dir:$SCAN_ROOT" "${ARGS[@]}" -o "cyclonedx-json=$SBOM" -q 2>>"$LOG"
       SYFT_EXIT=$?
     fi
     if [ "$SYFT_EXIT" -eq 0 ] && [ -s "$SBOM" ]; then
@@ -216,7 +252,6 @@ if [ -n "$SYFT_BIN" ]; then
   fi
 fi
 [ "$SYFT_STATUS" != "ok" ] && log "エラー: $SYFT_REASON"
-[ -d "$SCRIPT_DIR/.syft_work" ] && rm -rf "$SCRIPT_DIR/.syft_work"
 
 # ---- 個別製品 ----------------------------------------------------------------
 CUSTOM_JSON=""

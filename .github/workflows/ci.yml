@@ -59,11 +59,13 @@ jobs:
           curl -sSfL --retry 3 --retry-delay 10 --retry-all-errors -o /c/e2e/apps/log4j-core-2.14.1.jar "https://repo1.maven.org/maven2/$jar" \
             || curl -sSfL --retry 3 -o /c/e2e/apps/log4j-core-2.14.1.jar "https://maven-central.storage-download.googleapis.com/maven2/$jar"
 
-      - name: Collect with collect_win.ps1 (README usage, two scan roots)
+      - name: Collect with collect_win.ps1 from one folder, delete the folder, and require no other change
         shell: powershell
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File collectors\collect_win.ps1 -ScanRoots 'C:\e2e\apps','C:\Program Files\Git' -SkipDll -OutDir C:\e2e\inventory\win-server
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\e2e\footprint_windows.ps1 -Collector collectors\collect_win.ps1 -Dest C:\e2e\inventory\win-server -ScanRoots 'C:\e2e\apps','C:\Program Files\Git'
+          $code = $LASTEXITCODE
           Get-Content C:\e2e\inventory\win-server\collect.log -Encoding utf8
+          if ($code -ne 0) { exit $code }
 
       - name: Check the collected inventory
         shell: python
@@ -161,15 +163,15 @@ jobs:
           EOF
           test "$code" -eq 3
 
-      - name: Collect in Amazon Linux 2023 and Ubuntu 24.04 containers
+      - name: Collect in Amazon Linux 2023 and Ubuntu 24.04 containers from one folder, delete it, require no other change
         run: |
           for image in amazonlinux:2023 ubuntu:24.04; do
             name=$(echo "$image" | tr ':.' '--')
             docker run --rm --hostname "$name" -v "$PWD:/w" "$image" bash -c '
-              if command -v dnf >/dev/null; then dnf install -y -q tar gzip findutils hostname procps-ng util-linux >/dev/null
+              if command -v dnf >/dev/null; then dnf install -y -q tar gzip findutils hostname procps-ng util-linux diffutils >/dev/null
               else apt-get update -qq && apt-get install -y -qq procps >/dev/null; fi
               mkdir -p /opt/testapp && cp /w/testapp/log4j-core-2.14.1.jar /opt/testapp/
-              OUT_DIR=/w/inventory/'"$name"' EXTRA_EXCLUDES="./w/**" bash /w/collectors/collect_linux.sh
+              bash /w/tests/e2e/footprint_linux.sh /w/collectors /w/inventory/'"$name"'
             '
           done
           sudo chown -R "$(id -u)" inventory
