@@ -89,7 +89,7 @@
 
 ## 追加の比較: Amazon Linux 2 の kernel 5.10（extras）
 
-類似不良の調査で、Amazon Linux 2 の kernel 5.10 / 5.15 の修正情報が core に無いことが分かり、extras のトピックにも対応しました（[DEFECTS.md](DEFECTS.md) の #18・#19）。kernel 5.10 の古い版（`5.10.102-99.473.amzn2`）と nginx（nginx1 トピック）を入れた SBOM で比べた結果です。
+類似不良の調査で、Amazon Linux 2 の kernel 5.10 / 5.15 の修正情報が core に無いことが分かり、extras のトピックにも対応しました（[DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) の #18・#19）。kernel 5.10 の古い版（`5.10.102-99.473.amzn2`）と nginx（nginx1 トピック）を入れた SBOM で比べた結果です。
 
 | | 本ツール（対応前） | 本ツール（対応後） | Trivy | Grype |
 |---|---|---|---|---|
@@ -118,7 +118,7 @@
 | 環境 | 回収の方法 | わざと入れた古い部品 |
 |---|---|---|
 | Windows 11（管理 PC と同じ実機、管理者でない） | `collect_win.ps1` | log4j-core 2.14.1 の jar |
-| Ubuntu 24.04（GitHub Actions の実機） | `collect_linux.sh` と、syft だけ（[USAGE.md](USAGE.md) の手順） | log4j-core 2.14.1、requests 2.25.0、urllib3 1.26.4 |
+| Ubuntu 24.04（GitHub Actions の実機） | `collect_linux.sh` と、syft だけ（[USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の手順） | log4j-core 2.14.1、requests 2.25.0、urllib3 1.26.4 |
 | Amazon Linux 2 / 2023（GitHub Actions 上のコンテナ） | `collect_linux.sh` | log4j-core 2.14.1、リポジトリで最も古い sudo（AL2 は 1.8.19p2-11） |
 
 脆弱性データは `update` で実際に取得しました（差分更新も実データで動作）。Windows OS の判定は MSRC に実際に接続しました。
@@ -139,7 +139,7 @@
 
 ### この確認で見つけて直した不具合
 
-[DEFECTS.md](DEFECTS.md) の #37〜#43 です。いずれも検証用の SBOM では起きず、実機のデータで初めて現れました。
+[DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) の #37〜#43 です。いずれも検証用の SBOM では起きず、実機のデータで初めて現れました。
 
 - Windows の `-ScanRoots 'a','b'` が 1 つの文字列になり、ファイルの走査が空になる（#37）
 - Amazon Linux 2023 の実行ファイルの ELF のパッケージ情報を、rpm と別に照合して誤検出（#38）

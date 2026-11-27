@@ -31,23 +31,23 @@
 
 ## 全体の構成
 
-![全体の構成: 対象マシンで作ったソフトの一覧を人が管理 PC に持ち出し、管理 PC がインターネット上の公開情報から取得した脆弱性データと照合してレポートを出す](docs/images/architecture.drawio.png)
+![全体の構成: 対象マシンで作ったソフトの一覧を人が管理 PC に持ち出し、管理 PC がインターネット上の公開情報から取得した脆弱性データと照合してレポートを出す](https://github.com/hsgwa/cve_chk/raw/main/docs/images/architecture.drawio.png)
 
 ## 処理の流れ
 
-![処理の流れ: 1 人が回収スクリプトを実行、2 人が回収物と会社公表リストを置く、3 人が check_all.ps1 を実行、4 ツールが脆弱性データを最新にする、5 ツールが照合と判定をしてレポートを出す、6 人がレポートを見て対応する](docs/images/workflow.drawio.png)
+![処理の流れ: 1 人が回収スクリプトを実行、2 人が回収物と会社公表リストを置く、3 人が check_all.ps1 を実行、4 ツールが脆弱性データを最新にする、5 ツールが照合と判定をしてレポートを出す、6 人がレポートを見て対応する](https://github.com/hsgwa/cve_chk/raw/main/docs/images/workflow.drawio.png)
 
 調査のたびに脆弱性データを最新にしてから照合するので、**新しい脆弱性は回収をし直さなくても、調査を実行すれば見つかります**。回収をし直すのは、対象マシンのソフトが変わったとき（更新、追加）です。
 
 ## 照合と判定の仕組み
 
-![照合と判定の仕組み: 回収物のソフトごとに PURL と OS を決め、脆弱性データ、Windows OS の修正ビルド番号、会社公表リストの条件の 3 通りで照合し、通達 × 環境ごとに判定して社内ランクと対応期限をつける](docs/images/matching.drawio.png)
+![照合と判定の仕組み: 回収物のソフトごとに PURL と OS を決め、脆弱性データ、Windows OS の修正ビルド番号、会社公表リストの条件の 3 通りで照合し、通達 × 環境ごとに判定して社内ランクと対応期限をつける](https://github.com/hsgwa/cve_chk/raw/main/docs/images/matching.drawio.png)
 
 - **版の比べ方はパッケージの種類ごとに違います**（Debian / Ubuntu、RPM、Maven、PyPI などの規則）。比べられない版は、安全側に「影響あり（比較不能）」にします。
 - **Linux の OS パッケージは、ディストリビューションの修正情報で判定します。** 版の数字が古く見えても、ディストリビューションが修正を取り込んでいれば「影響なし」です。
 - **確かめられないものは「影響なし」にしません。** 回収できていない環境、版が分からない製品、照合のデータが無いパッケージは「判定不能」か「影響あり（比較不能）」になります。
 - 判定できる対象: Ubuntu / Debian / RHEL 系 / Amazon Linux / Alpine の OS パッケージ、Java・Python・npm・NuGet・Go・Rust・Ruby などのライブラリ、Windows OS と適用済みの更新プログラム（KB）、zip・jar・war・ear・whl の中のライブラリ（Java・Python・npm・NuGet）。
-- 詳しい仕組みは [docs/DESIGN.md](docs/DESIGN.md) にあります。
+- 詳しい仕組みは [docs/DESIGN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DESIGN.md) にあります。
 
 ## レポート
 
@@ -72,30 +72,30 @@
 
 ## 判定できないもの
 
-脆弱性データに無い製品（商用ソフトなど）、実行ファイル本体（カーネルのイメージ、node・python のバイナリ）、Windows の OS 以外の Microsoft 製品（Office、SQL Server など）、コンテナの中身などは自動では判定できません。これらは通達に製品名と版の条件を書けば照合できます。一覧と代わりの方法は [docs/ROLLOUT.md](docs/ROLLOUT.md) の 7 章にあります。「影響あり」は版の一致を意味し、実際に攻撃できるかどうかは人が判断します。
+脆弱性データに無い製品（商用ソフトなど）、実行ファイル本体（カーネルのイメージ、node・python のバイナリ）、Windows の OS 以外の Microsoft 製品（Office、SQL Server など）、コンテナの中身などは自動では判定できません。これらは通達に製品名と版の条件を書けば照合できます。一覧と代わりの方法は [docs/ROLLOUT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/ROLLOUT.md) の 7 章にあります。「影響あり」は版の一致を意味し、実際に攻撃できるかどうかは人が判断します。
 
 ## 品質
 
 - push のたびに GitHub Actions で、単体テスト（Windows / Linux、Python 3.10 / 3.13）と、Windows Server 2025・Amazon Linux 2023・Ubuntu 24.04 での回収から照合までの試験、調査スクリプト（`check_all.ps1`）の試験を行います。syft は固定の版と最新の版の両方で試します。
-- 実機（Windows 11、Ubuntu 24.04、Amazon Linux 2 / 2023）で回収から照合までを通し、同じ SBOM で Grype と結果を比べ、差を 1 件ずつ確かめています（[docs/COMPARISON.md](docs/COMPARISON.md)）。
-- 見つけて直した不具合と、同じ種類の不具合を防ぐ検査は [docs/DEFECTS.md](docs/DEFECTS.md) にあります。
+- 実機（Windows 11、Ubuntu 24.04、Amazon Linux 2 / 2023）で回収から照合までを通し、同じ SBOM で Grype と結果を比べ、差を 1 件ずつ確かめています（[docs/COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md)）。
+- 見つけて直した不具合と、同じ種類の不具合を防ぐ検査は [docs/DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) にあります。
 
 ## 文書
 
 | 文書 | 内容 |
 |---|---|
-| [docs/USAGE.md](docs/USAGE.md) | **使い方。** セットアップ、回収、入力ファイル、実行、レポートの読み方 |
-| [docs/ROLLOUT.md](docs/ROLLOUT.md) | **本番導入の計画。** ツールと人の分担、人の作業と頻度、本番投入前のチェックリスト、リスクと対策、判定できないもの |
-| [docs/OPERATIONS.md](docs/OPERATIONS.md) | 運用の手引き。本番前の確認、対象マシンへの影響、回収物の扱い、対応の流れ、困ったとき |
-| [docs/DESIGN.md](docs/DESIGN.md) | 仕組み（データの取得、照合、判定の流れ） |
-| [docs/COMPARISON.md](docs/COMPARISON.md) | 他のツール（Trivy、Grype、OSV-Scanner）との比較と、実機での確認の結果 |
-| [docs/DEFECTS.md](docs/DEFECTS.md) | 見つけて直した不具合と、同じ種類の不具合を防ぐ検査 |
-| [CHANGELOG.md](CHANGELOG.md) | 変更履歴（[リリース](https://github.com/hsgwa/cve_chk/releases)） |
-| [docs/PLAN.md](docs/PLAN.md) | 最初の設計の記録（経緯。本文は実装前の計画のまま） |
+| [docs/USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) | **使い方。** セットアップ、回収、入力ファイル、実行、レポートの読み方 |
+| [docs/ROLLOUT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/ROLLOUT.md) | **本番導入の計画。** ツールと人の分担、人の作業と頻度、本番投入前のチェックリスト、リスクと対策、判定できないもの |
+| [docs/OPERATIONS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/OPERATIONS.md) | 運用の手引き。本番前の確認、対象マシンへの影響、回収物の扱い、対応の流れ、困ったとき |
+| [docs/DESIGN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DESIGN.md) | 仕組み（データの取得、照合、判定の流れ） |
+| [docs/COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md) | 他のツール（Trivy、Grype、OSV-Scanner）との比較と、実機での確認の結果 |
+| [docs/DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) | 見つけて直した不具合と、同じ種類の不具合を防ぐ検査 |
+| [CHANGELOG.md](https://github.com/hsgwa/cve_chk/blob/main/CHANGELOG.md) | 変更履歴（[リリース](https://github.com/hsgwa/cve_chk/releases)） |
+| [docs/PLAN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/PLAN.md) | 最初の設計の記録（経緯。本文は実装前の計画のまま） |
 
 ## ライセンス
 
-このツールのコード・スクリプト・文書は [MIT No Attribution（MIT-0）](LICENSE) です。著作権表示を残す義務も無く、改変・再配布・商用利用を含めて自由に使えます（無保証）。
+このツールのコード・スクリプト・文書は [MIT No Attribution（MIT-0）](https://github.com/hsgwa/cve_chk/blob/main/LICENSE) です。著作権表示を残す義務も無く、改変・再配布・商用利用を含めて自由に使えます（無保証）。
 
 依存ライブラリ（pip で別に入るもの。このリポジトリには含めていません）はすべて、同じく自由に使えるライセンスです。
 

@@ -65,7 +65,7 @@
 
 | 見逃した原因 | 該当 | 検出できた方法 | 今回入れた担保 |
 |---|---|---|---|
-| **正解と比べていなかった**。自分の実装の結果だけを見ていた | 8〜11、15、16、19 | 同じ入力を他のツール（Trivy・Grype・OSV-Scanner）にかけ、差分を1件ずつ調べる | 4 ツール比較の手順（[COMPARISON.md](COMPARISON.md)）。データ源や判定を変えたら再実行する |
+| **正解と比べていなかった**。自分の実装の結果だけを見ていた | 8〜11、15、16、19 | 同じ入力を他のツール（Trivy・Grype・OSV-Scanner）にかけ、差分を1件ずつ調べる | 4 ツール比較の手順（[COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md)）。データ源や判定を変えたら再実行する |
 | **対象環境の実際の構成で試していなかった**。Amazon Linux 2 の標準カーネル（5.10）、Ubuntu の universe、RHEL 10、Alpine の版の形を試験データに入れていなかった | 15、18、22〜24 | 利用者の環境（EC2 / EMR の AL2 + kernel 5.10 など）を代表する SBOM を試験データに入れる | kernel 5.10 の検証用 SBOM と extras のテスト。Ubuntu Pro・RHEL 10・Alpine のテスト |
 | **外部データの仕様を網羅的に確かめていなかった**。データに含まれる系統の種類を一覧で見ていなかった | 15、18、22、23 | データに現れる系統（エコシステム名）をすべて列挙し、使うか使わないかを1つずつ決める | 系統の分類（`vulndb/coverage.py`）。分類外の系統が現れたら `update` が警告し、監査が NG にする |
 | **不変条件を検査していなかった** | 8、13、24、25 | 「検出のもとの記録にそのパッケージが載っている」「影響範囲の下限 ≦ 修正版」などを全データで機械的に確かめる | 監査スクリプト `tools/audit_vulndb.py`（C、D1〜D5） |
@@ -109,4 +109,4 @@ pytest -q                                                     # 静的な検査�
 python tools/audit_vulndb.py --db-dir vulndb --inventory-dir inventory   # 実データの監査（問題があれば終了コード 1）
 ```
 
-データ源や判定方法を変えたときは、加えて [COMPARISON.md](COMPARISON.md) の手順で 4 ツール比較を再実行し、「本ツールだけ無い」が 0 件のままであることを確かめます。
+データ源や判定方法を変えたときは、加えて [COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md) の手順で 4 ツール比較を再実行し、「本ツールだけ無い」が 0 件のままであることを確かめます。

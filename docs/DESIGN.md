@@ -1,10 +1,10 @@
 # 脆弱確認（zk）の仕組み
 
-この文書は、現在のコードがどう動くかを説明します。概要は [README](../README.md)、使い方は [USAGE.md](USAGE.md)、設計の経緯は [PLAN.md](PLAN.md)、不具合の記録は [DEFECTS.md](DEFECTS.md)、他ツールとの比較は [COMPARISON.md](COMPARISON.md) にあります。
+この文書は、現在のコードがどう動くかを説明します。概要は [README](https://github.com/hsgwa/cve_chk/blob/main/README.md)、使い方は [USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md)、設計の経緯は [PLAN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/PLAN.md)、不具合の記録は [DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md)、他ツールとの比較は [COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md) にあります。
 
 ## 1. 全体の流れ
 
-![全体の流れ: 対象マシンの回収スクリプトが出した回収物を管理 PC に置き、zk update が脆弱性データを取得して索引を作り、zk check が 6 段階（読み込み、PURL 付け、照合、Windows OS の判定、判定、出力）でレポートを出す](images/pipeline.drawio.png)
+![全体の流れ: 対象マシンの回収スクリプトが出した回収物を管理 PC に置き、zk update が脆弱性データを取得して索引を作り、zk check が 6 段階（読み込み、PURL 付け、照合、Windows OS の判定、判定、出力）でレポートを出す](https://github.com/hsgwa/cve_chk/raw/main/docs/images/pipeline.drawio.png)
 
 管理 PC で外部に接続するのは次の 3 つだけです。`check` が使う脆弱性データは `update` で取得済みのものだけです。
 
@@ -46,7 +46,7 @@
 ### 回収スクリプト
 
 - **Linux**（`collect_linux.sh`）: 持ち込んだ syft の tar.gz を展開して実行し、CycloneDX の SBOM（`cdx_syft.json`）を作ります。OS 情報、EMR のリリースラベル、syft で取れない製品の版（スクリプト内の表に書いた `cmd` / `file` / `exists` / `proc` / `find`）は `os_info.json` に入れます。
-- **Windows**（`collect_win.ps1`）: exe を使わず、1 台 1 ファイルの `inventory.json` を作ります。内容は OS（ビルド番号と UBR）、適用済み KB、レジストリのインストール済みソフト、exe / dll の版情報、jar（pom.properties を読む。SHA-1 付き）、Python の dist-info、npm の package.json、NuGet の deps.json、実行中のプロセスとサービスです。項目ごとに `status`（`ok` / `failed` / `skipped`）と理由が入ります。jbom.jar は使いません（[PLAN.md](PLAN.md) の冒頭を参照）。
+- **Windows**（`collect_win.ps1`）: exe を使わず、1 台 1 ファイルの `inventory.json` を作ります。内容は OS（ビルド番号と UBR）、適用済み KB、レジストリのインストール済みソフト、exe / dll の版情報、jar（pom.properties を読む。SHA-1 付き）、Python の dist-info、npm の package.json、NuGet の deps.json、実行中のプロセスとサービスです。項目ごとに `status`（`ok` / `failed` / `skipped`）と理由が入ります。jbom.jar は使いません（[PLAN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/PLAN.md) の冒頭を参照）。
 
 ### 形式の判別（`inventory.py`）
 
@@ -124,7 +124,7 @@ Amazon の公式情報には CVSS がありません。同じ CVE の点数を�
 
 ### 系統の分類（`vulndb/coverage.py`）
 
-データに現れる系統（`Ubuntu:22.04:LTS`、`Red Hat:enterprise_linux:9::appstream` など）は、すべて「照合に使う」か「理由があって使わない」に分類してあります。どちらにも当たらない系統が現れると、`update` が警告します。データ提供元が新しい系統を足したときに見落としに気づくためです。使わない系統は [DEFECTS.md](DEFECTS.md) の 4 章にあります。
+データに現れる系統（`Ubuntu:22.04:LTS`、`Red Hat:enterprise_linux:9::appstream` など）は、すべて「照合に使う」か「理由があって使わない」に分類してあります。どちらにも当たらない系統が現れると、`update` が警告します。データ提供元が新しい系統を足したときに見落としに気づくためです。使わない系統は [DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) の 4 章にあります。
 
 ## 5. 照合（`vulndb/scanner.py`、`vulndb/ecosystems.py`）
 
@@ -257,6 +257,6 @@ CVE だけの通達で何も当たらないときは、照合できたパッケ�
 |---|---|
 | `pytest` | 単体テストと静的な検査（`tests/test_static_checks.py`）。PURL の読み取りは `purl.py` だけか、版の比較の入口は決まった場所だけか、記録の評価でパッケージ名を確かめているか、PowerShell の誤りやすい書き方が無いか、保存ファイル名が Windows で使えるか、`update` のオプションの組み合わせ |
 | `tools/audit_vulndb.py` | 実データの監査。系統の分類（A）、extras の網羅（B）、版の比較規則と範囲の順序（C）、照合結果の不変条件（D1〜D5）。問題があれば終了コード 1 |
-| 4 ツール比較 | 同じ SBOM を Trivy・Grype・OSV-Scanner にかけて比べる（[COMPARISON.md](COMPARISON.md)）。データ源や判定を変えたら再実行する |
+| 4 ツール比較 | 同じ SBOM を Trivy・Grype・OSV-Scanner にかけて比べる（[COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md)）。データ源や判定を変えたら再実行する |
 
-実機での確認の結果は [COMPARISON.md](COMPARISON.md) の「実機での確認」にあります。CI（`.github/workflows/ci.yml`）は、push のたびに単体テスト（Windows / Linux、Python 3.10 / 3.13）、Windows Server 2025 での回収・照合・タスクの登録と実行、Amazon Linux 2023 と Ubuntu 24.04 のコンテナでの回収・照合を行います。まだ確かめていないこと: Maven Central への実際の接続（`--resolve-hashes`）と、Windows Server 2016 / 2019 などの古い版です。
+実機での確認の結果は [COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md) の「実機での確認」にあります。CI（`.github/workflows/ci.yml`）は、push のたびに単体テスト（Windows / Linux、Python 3.10 / 3.13）、Windows Server 2025 での回収・照合・タスクの登録と実行、Amazon Linux 2023 と Ubuntu 24.04 のコンテナでの回収・照合を行います。まだ確かめていないこと: Maven Central への実際の接続（`--resolve-hashes`）と、Windows Server 2016 / 2019 などの古い版です。

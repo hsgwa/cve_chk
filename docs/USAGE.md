@@ -1,6 +1,6 @@
 # 使い方
 
-管理 PC の準備、対象マシンでの回収、入力ファイルの書き方、実行、レポートの読み方をまとめます。ツールの概要と用語は [README](../README.md)、本番導入の計画は [ROLLOUT.md](ROLLOUT.md)、運用の手順と困ったときの対処は [OPERATIONS.md](OPERATIONS.md) を参照してください。
+管理 PC の準備、対象マシンでの回収、入力ファイルの書き方、実行、レポートの読み方をまとめます。ツールの概要と用語は [README](https://github.com/hsgwa/cve_chk/blob/main/README.md)、本番導入の計画は [ROLLOUT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/ROLLOUT.md)、運用の手順と困ったときの対処は [OPERATIONS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/OPERATIONS.md) を参照してください。
 
 | 章 | 内容 |
 |---|---|
@@ -75,7 +75,7 @@ zk update --inventory-dir inventory    # 新しく出てきたエコシステム
 | Ubuntu / Debian / RHEL / Rocky / AlmaLinux の OS パッケージ | OSV.dev | Ubuntu 784 MB、Debian 80 MB、Red Hat 28 MB |
 | CVSS の点数（Amazon Linux 用） | OSV.dev の Debian データ（OS パッケージがある場合に自動で取得） | 80 MB |
 
-- 取得したデータに、本ツールが分類していない系統（例: データ提供元が新しく追加したもの）があると、`update` が警告を出します。その系統にしか修正情報が無い脆弱性は見落とすので、[DEFECTS.md](DEFECTS.md) の手順で確認してください。
+- 取得したデータに、本ツールが分類していない系統（例: データ提供元が新しく追加したもの）があると、`update` が警告を出します。その系統にしか修正情報が無い脆弱性は見落とすので、[DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) の手順で確認してください。
 - 管理 PC から次のホストへ HTTPS（Amazon Linux 2 は HTTP）で出られる必要があります: `osv-vulnerabilities.storage.googleapis.com`、`amazonlinux.default.amazonaws.com`、`cdn.amazonlinux.com`、`al2023-repos-*.s3.dualstack.*.amazonaws.com`。社内プロキシは環境変数 `HTTPS_PROXY` / `HTTP_PROXY` で指定します。
 - 送るのはダウンロードの要求だけで、パッケージ名やホスト名などの回収データは外部に送りません。
 - 管理 PC から取得できない場合は、別の PC のブラウザで `https://osv-vulnerabilities.storage.googleapis.com/<エコシステム名>/all.zip`（例 `Maven/all.zip`）を保存し、`update --import Maven=Maven.zip` で取り込めます（この場合は差分更新はできず、次回の更新は全件になります）。
@@ -154,7 +154,7 @@ sudo bash collect_linux.sh
 - syft が 3 時間で終わらなければ打ち切り、syft の失敗として記録します（`SYFT_TIMEOUT_SEC` で変更）。
 - syft のメモリの目安を 1 GiB にしています（`SYFT_MEMORY_LIMIT`。Go の `GOMEMLIMIT`）。超えそうになるとメモリの回収を早めます。止めるものではないので、それ以上使うこともあります。
 - 終了コード: 0 = 成功、1 = 出力先・作業フォルダを作れない、3 = syft が失敗（`os_info.json` は出る）、4 = 空き容量が足りない。
-- サーバーへの影響と、本番の前に確かめることは [OPERATIONS.md](OPERATIONS.md) にあります。
+- サーバーへの影響と、本番の前に確かめることは [OPERATIONS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/OPERATIONS.md) にあります。
 
 #### スクリプトを使わず、syft だけで回収する場合
 
@@ -361,19 +361,19 @@ Excel の 1 シートには、ランク・期限の順で先頭 10 万行まで�
 
 ## 6. この結果の限界
 
-「未使用」「影響なし」は**回収できた範囲での結果**です。取りこぼしを減らす確認の手順は [OPERATIONS.md](OPERATIONS.md) の 1 章にあります。
+「未使用」「影響なし」は**回収できた範囲での結果**です。取りこぼしを減らす確認の手順は [OPERATIONS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/OPERATIONS.md) の 1 章にあります。
 
 - **対象外**: コンテナの中身、Lambda の実行環境そのもの、AWS マネージドサービス側、Windows の Go / Rust 製 exe の内部依存。
 - **取りこぼしうるもの**: 権限不足で読めなかったフォルダ、走査対象に入れなかったフォルダ、ネットワークドライブ上のソフト、表に登録していない商用ソフト。「収集状況」シートで確認してください。
 - **判定の限界**: 脆弱性データ（OSV.dev、Amazon Linux の公式情報）に無い脆弱性は検出されません。「影響あり」は版の一致であり、実際に攻撃可能かは判定しません。製品名の表記が違うと「未使用」になります。
-- **対象外の系統**: RHEL の追加製品（OpenShift、JBoss など）、RHEL の延長サポート（EUS）、Ubuntu の FIPS / Realtime 版の修正情報は使いません（[DEFECTS.md](DEFECTS.md) の 4 章）。
-- **不具合の記録と類似不良の確認**: [DEFECTS.md](DEFECTS.md)。実データの監査は `python tools/audit_vulndb.py --db-dir vulndb --inventory-dir inventory`。
-- **照合の精度**（[COMPARISON.md](COMPARISON.md)）:
+- **対象外の系統**: RHEL の追加製品（OpenShift、JBoss など）、RHEL の延長サポート（EUS）、Ubuntu の FIPS / Realtime 版の修正情報は使いません（[DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) の 4 章）。
+- **不具合の記録と類似不良の確認**: [DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md)。実データの監査は `python tools/audit_vulndb.py --db-dir vulndb --inventory-dir inventory`。
+- **照合の精度**（[COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md)）:
   - 検証用の SBOM で Trivy・Grype・OSV-Scanner と比べ、他の 3 ツールがそろって検出していて本ツールだけが見落としたものは 0 件でした。Ruby は Trivy 独自のデータ源の分だけ少なくなります。
   - 実機（Ubuntu 24.04、Amazon Linux 2 / 2023）の SBOM で、現在の Grype と比べました。Ubuntu は 27,532 件が一致し、本ツールだけの検出は Go の版の表記の違いだけでした。Grype だけの検出は、実行ファイル自体の照合（カーネル、node、python）、修正版がまだ無い CVE、Grype 側の当てはめすぎ（Amazon Linux 2 の extras）で、理由を 1 件ずつ確かめています。
   - 実行ファイル自体（ruby・python・node のバイナリ、カーネルのイメージなど）の照合は行いません。
 - **Amazon Linux**: Amazon Linux 2 は core と extras の全トピック（kernel-5.4 / 5.10 / 5.15、nginx1、php8.x など 73 件）、Amazon Linux 2023 は core の情報を取得します。x86_64 の情報で、arm64 にも同じ版番号のため流用します。EMR 独自のパッケージは含みません。公式情報に CVSS が無いため、Debian のデータの同じ CVE から点数を引いています（見つからなければ「CVSS 不明」で Rank-C、備考に Amazon の深刻度を表示）。
-- **実機での確認**（[COMPARISON.md](COMPARISON.md) の「実機での確認」）: Windows 11（管理者でない実行、ARM64）での回収、Ubuntu 24.04 と Amazon Linux 2 / 2023 での回収（スクリプトと syft だけの両方）、`update` の全件取得と差分更新、MSRC に接続した Windows OS の判定を通して確かめました。Windows Server 2025（管理者）での回収と照合は CI で毎回確かめています（`.github/workflows/ci.yml`）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
+- **実機での確認**（[COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md) の「実機での確認」）: Windows 11（管理者でない実行、ARM64）での回収、Ubuntu 24.04 と Amazon Linux 2 / 2023 での回収（スクリプトと syft だけの両方）、`update` の全件取得と差分更新、MSRC に接続した Windows OS の判定を通して確かめました。Windows Server 2025（管理者）での回収と照合は CI で毎回確かめています（`.github/workflows/ci.yml`）。初回は 1 台で実行し、`inventory.json` の中身が実態と合っているか確認してください。
 - **`--resolve-hashes`**: Maven Central に実際に接続し、名前の分からない jar（log4j-core 2.14.1 の SHA-1）を特定して影響ありと判定できることを確かめました。
 
 ## 7. Trivy を使う場合（任意）
@@ -396,7 +396,7 @@ python examples/make_advisory_list.py     # サンプルの会社公表リスト
 
 `examples/vulndb/` は、本物の OSV.dev / Amazon Linux のデータから、サンプルのパッケージに関係する記録だけを抜き出したものです（`update --import` で作成）。
 
-GitHub Actions の CI（`.github/workflows/ci.yml`）が、push のたびに単体テストと、Windows Server・Amazon Linux 2023・Ubuntu 24.04 での回収から照合までの試験を行います。変更履歴は [CHANGELOG.md](../CHANGELOG.md)、不具合の記録は [DEFECTS.md](DEFECTS.md) にあります。
+GitHub Actions の CI（`.github/workflows/ci.yml`）が、push のたびに単体テストと、Windows Server・Amazon Linux 2023・Ubuntu 24.04 での回収から照合までの試験を行います。変更履歴は [CHANGELOG.md](https://github.com/hsgwa/cve_chk/blob/main/CHANGELOG.md)、不具合の記録は [DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) にあります。
 
 文書の図は `docs/images/*.drawio.png` です。図のデータを埋め込んだ PNG なので、draw.io（デスクトップ版、または https://app.diagrams.net ）でそのまま開いて編集し、同じ形式（PNG、「図のコピーを含める」をオン）で保存し直せます。
 

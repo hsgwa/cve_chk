@@ -1,6 +1,6 @@
 # 運用の手引き
 
-導入の計画（自動化の範囲、人の作業、本番投入前のチェックリスト、リスク）は [ROLLOUT.md](ROLLOUT.md) にあります。この文書は、本番の環境で使う前に確かめること、対象のサーバーへの影響、回収物の扱い、レポートを使った対応の流れ、困ったときの対処をまとめます。ツールの概要は [README](../README.md)、操作の詳細は [USAGE.md](USAGE.md)、仕組みは [DESIGN.md](DESIGN.md) を参照してください。
+導入の計画（自動化の範囲、人の作業、本番投入前のチェックリスト、リスク）は [ROLLOUT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/ROLLOUT.md) にあります。この文書は、本番の環境で使う前に確かめること、対象のサーバーへの影響、回収物の扱い、レポートを使った対応の流れ、困ったときの対処をまとめます。ツールの概要は [README](https://github.com/hsgwa/cve_chk/blob/main/README.md)、操作の詳細は [USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md)、仕組みは [DESIGN.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DESIGN.md) を参照してください。
 
 ## 1. 本番の前に確かめること
 
@@ -17,7 +17,7 @@
 | 項目 | 内容 |
 |---|---|
 | 変更 | しない。パッケージのインストール、設定、レジストリ、サービス、タスクの変更はしない。ネットワークも使わない |
-| 書き込み | **スクリプトを置いたフォルダの中だけ。** 出力（`out/<ホスト名>/`）に数十 KB〜十数 MB。Linux は syft の展開・一時ファイル・キャッシュを `.work/` に置き（約 60 MB〜）、終われば消す。回収後はフォルダごと消せば元の状態に戻る（[USAGE.md](USAGE.md) の 2 章。CI で毎回確かめている） |
+| 書き込み | **スクリプトを置いたフォルダの中だけ。** 出力（`out/<ホスト名>/`）に数十 KB〜十数 MB。Linux は syft の展開・一時ファイル・キャッシュを `.work/` に置き（約 60 MB〜）、終われば消す。回収後はフォルダごと消せば元の状態に戻る（[USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の 2 章。CI で毎回確かめている） |
 | 空き容量 | 出力先の空きが 500 MB 未満なら、何も書かずに止める（ディスクを満杯にしない） |
 | ファイルのロック | しない。Windows では、他のプログラムの書き込み・削除・名前の変更を妨げない開き方で読む（業務アプリが jar を更新・再配置中でも邪魔をしない）。Linux はもともとロックしない |
 | ディスクの読み込み | 最も大きい負荷。Linux は `/` 全体、Windows は走査対象のフォルダのファイルを読む |
@@ -54,7 +54,7 @@
 
 ## 4. 管理 PC の運用
 
-- **調査は `check_all.ps1` でまとめて実行する。** 照合の前に脆弱性データを必ず更新します（[USAGE.md](USAGE.md) の 1 章、[ROLLOUT.md](ROLLOUT.md) の 2 章）。`check` を個別に実行する場合、データの更新から 1 日を超えていると結果に警告が出ます。
+- **調査は `check_all.ps1` でまとめて実行する。** 照合の前に脆弱性データを必ず更新します（[USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の 1 章、[ROLLOUT.md](https://github.com/hsgwa/cve_chk/blob/main/docs/ROLLOUT.md) の 2 章）。`check` を個別に実行する場合、データの更新から 1 日を超えていると結果に警告が出ます。
 - **データの置き場所には 5 GB 以上の空きを用意する。** 脆弱性データは Ubuntu・npm・Debian を含めて約 2.3 GB（索引 1.2 GB と zip）。7 日ごとの全件の取り直しでは、新しい zip を書き終えてから入れ替えるので、一時的に Ubuntu の分（約 800 MB）が余分に要る。
 - **レポートは調査のたびに増える**（小さい環境で数十 KB、ソフトの多い Linux を含む 5 環境で約 16 MB）。証跡として残すので、台数が多い場合は古いレポートを別の場所に移す。
 - 対象マシンで使う容量は、Linux で最大 150 MB 程度（syft の tar.gz 16〜30 MB、実行中だけの展開 60〜90 MB、回収物 0.3〜15 MB）、Windows で 1 MB 未満（回収物 0.1〜0.2 MB）。空きが 500 MB 未満なら何も書かずに止める。

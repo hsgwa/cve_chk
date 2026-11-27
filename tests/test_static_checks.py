@@ -132,3 +132,20 @@ def test_collectors_do_not_block_or_delete_outside_their_folder():
     for bad in ('rm -rf "$WORK_DIR"', 'rm -rf "$OUT_DIR"', 'rm -rf "$SCRIPT_DIR'):
         assert bad not in linux, f"collect_linux.sh: {bad}"
     assert 'rm -rf "$RUN_WORK"' in linux and "mktemp -d" in linux
+
+
+def test_markdown_links_are_absolute_and_exist():
+    """文書のリンクは GitHub の絶対 URL にする（GitHub のスマホアプリは相対リンクで「Error loading page」になる）。
+    このリポジトリへのリンクは、指すファイルが実在すること。"""
+    import re
+    base = "https://github.com/hsgwa/cve_chk/"
+    docs = [ROOT / "README.md", ROOT / "CHANGELOG.md", *sorted((ROOT / "docs").glob("*.md"))]
+    for md in docs:
+        for target in re.findall(r"\]\(([^)\s]+)\)", md.read_text(encoding="utf-8")):
+            if target.startswith("#") or target.startswith("mailto:"):
+                continue
+            assert target.startswith("http"), f"{md.name}: 相対リンク {target}"
+            match = re.match(r"(blob|tree|raw)/main/([^#]+)", target[len(base):]) if target.startswith(base) else None
+            if match:
+                path = match.group(2)
+                assert (ROOT / path).exists(), f"{md.name}: 無いファイルへのリンク {target}"

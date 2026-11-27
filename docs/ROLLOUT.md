@@ -1,10 +1,10 @@
 # 本番導入の計画
 
-実際の運用に入るための計画です。何をツールが行い、何を人が行うか、本番投入までに確かめること、残っているリスクと判定できない範囲を 1 か所にまとめます。ツールの概要と用語は [README](../README.md)、日々の操作は [USAGE.md](USAGE.md)、運用の細かな手順と困ったときの対処は [OPERATIONS.md](OPERATIONS.md) を参照してください。
+実際の運用に入るための計画です。何をツールが行い、何を人が行うか、本番投入までに確かめること、残っているリスクと判定できない範囲を 1 か所にまとめます。ツールの概要と用語は [README](https://github.com/hsgwa/cve_chk/blob/main/README.md)、日々の操作は [USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md)、運用の細かな手順と困ったときの対処は [OPERATIONS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/OPERATIONS.md) を参照してください。
 
 ## 1. 全体の流れ
 
-![全体の流れ: 人が回収・配置・check_all.ps1 の実行・対応を行い、ツールが脆弱性データの更新と照合・レポート作成を行う](images/workflow.drawio.png)
+![全体の流れ: 人が回収・配置・check_all.ps1 の実行・対応を行い、ツールが脆弱性データの更新と照合・レポート作成を行う](https://github.com/hsgwa/cve_chk/raw/main/docs/images/workflow.drawio.png)
 
 | 工程 | 誰が | 頻度の目安 | 仕組み |
 |---|---|---|---|
@@ -17,7 +17,7 @@
 
 ## 2. 管理 PC の準備
 
-1. Python 3.10 以降を入れ、リリースの版を取得して `pip install -e .` する（[USAGE.md](USAGE.md) の 1 章）。
+1. Python 3.10 以降を入れ、リリースの版を取得して `pip install -e .` する（[USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の 1 章）。
 2. 作業フォルダを作る（ローカルのディスク。`%TEMP%` のような自動で掃除される場所は不可）。
 
    ```
@@ -52,14 +52,14 @@
 | レポートを見る | 対応担当 | 調査のたび | 「前回との差分」の「新たに影響あり」、サマリの注意事項（回収漏れ、古いデータ、照合できなかったもの） |
 | 対応を決める | 対応担当 | 影響ありのたび | 「影響あり」は版の一致。実際に攻撃できるかは人が判断する。「要更新パッケージ」の版に上げる |
 | 「判定不能」を解消する | 管理者 | 出るたび | 明細の備考の理由（回収漏れ、syft の失敗など）を解消する |
-| 個別製品の版の取り方を書く | 各環境の担当 | 製品を入れたとき | HULFT / DataMagic など、パッケージ管理の外の製品（[USAGE.md](USAGE.md) の「HULFT / DataMagic などの商用ソフト」） |
+| 個別製品の版の取り方を書く | 各環境の担当 | 製品を入れたとき | HULFT / DataMagic など、パッケージ管理の外の製品（[USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の「HULFT / DataMagic などの商用ソフト」） |
 | 定期の保守 | 管理者 | 下の 6 章 | |
 
 回収の頻度の考え方: 調査のたびに脆弱性データを最新にしてから照合するので、**新しい脆弱性は回収をし直さなくても、調査を実行すれば見つかります**。回収をし直す必要があるのは、対象のサーバーのソフトが変わったとき（更新、追加）です。回収から 90 日を過ぎると「収集状況」シートで警告が出ます（`config.yaml` の `stale_days`）。
 
 ## 4. 本番投入前のチェックリスト
 
-- [ ] 本番と同じ構成の検証機で、回収の所要時間と CPU・メモリを測った（[OPERATIONS.md](OPERATIONS.md) の 1 章）
+- [ ] 本番と同じ構成の検証機で、回収の所要時間と CPU・メモリを測った（[OPERATIONS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/OPERATIONS.md) の 1 章）
 - [ ] 検証機の回収結果で、主要な製品（Java、Web サーバー、HULFT、DataMagic など）が出ていることを `preview` で確かめた
 - [ ] HULFT / DataMagic の版の取り方を、両方の回収スクリプトに書いた（書くまでは「存在する（版不明）」= 影響あり（比較不能））
 - [ ] 会社公表リストの見出しを `config.yaml` の `advisory_input` に合わせ、`preview --advisory` で警告が無いことを確かめた
@@ -81,7 +81,7 @@
 | 製品名の表記ゆれ | 入っているのに「未使用」になる | `preview` で当たり方を表示 | 通達ごとに確かめ、`aliases` に登録する |
 | 影響ありが多すぎる | 対応しきれず、重要なものが埋もれる | 「要更新パッケージ」でまとめる。ランクと期限の順に並べる。「前回との差分」で新しいものだけを見られる | ランクの高いもの、internet のものから対応する。カーネルなど再起動が要るものは計画的に更新する |
 | 調査を実行し忘れる・脆弱性データが更新されない | 新しい脆弱性に気づくのが遅れる | `check_all.ps1` は照合の前に必ずデータを更新する。1 日を超えて古いデータで照合すると警告。更新に失敗したデータは前回の内容で照合し、終了コード 1 | 調査の頻度と担当を決めて守る。終了コード 1 が続く場合は管理 PC の接続を確かめる |
-| データ提供元の形式の変化 | 新しい系統の情報を見落とす | 分類されていない系統が現れたら `update` が警告（[DEFECTS.md](DEFECTS.md)） | 警告が出たら、使う系統か確かめてツールを直す |
+| データ提供元の形式の変化 | 新しい系統の情報を見落とす | 分類されていない系統が現れたら `update` が警告（[DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md)） | 警告が出たら、使う系統か確かめてツールを直す |
 | syft の改ざん・破損 | root で不正なプログラムを実行する | 配布元のチェックサムと一致しなければ実行しない | `syft_<版>_checksums.txt` を一緒に持ち込む。必須にするなら `REQUIRE_SYFT_CHECKSUM=1` |
 | 対象サーバーへの負荷 | 業務処理が遅くなる | 既定で優先度を最低にする。syft は 3 時間で打ち切る。メモリの回収を早める（目安 1 GiB）。空きが 500 MB 未満なら何も書かずに止める。ファイルをロックしない | 業務の少ない時間帯に実行する（終わった後もしばらくファイルキャッシュの影響が残る）。検証機で測る |
 | 対象サーバーに残るもの | 回収の後にファイルが残る | 書き込みはスクリプトを置いたフォルダの中だけ。フォルダごと消せば元に戻る（CI で毎回確かめる） | 回収後にフォルダを消す。個別製品の `cmd` を足すときは、そのコマンドが書くものを検証機で確かめる |
@@ -89,7 +89,7 @@
 | ウイルス対策ソフト | 脆弱な jar が隔離され、回収されない。脆弱性データのファイルが消える | データのファイルが消えても `update` で自動で取り直す | 消える場合は作業フォルダを除外の対象にするか相談する |
 | 会社公表リストの書式の変化 | 読み込めない、または読み落とす | 見出しが見つからなければ止まる（終了コード 2）。読まなかったシートなどは警告 | 書式が変わったら `advisory_input` を直す |
 | ツールの古さ | 新しい syft の出力形式に合わない。依存ライブラリの脆弱性 | CI が push のたびに、最新の syft でも回収から照合まで試す | 下の 6 章の定期の保守 |
-| 担当者の交代 | 運用が止まる | 手順を文書にまとめた（この文書、[OPERATIONS.md](OPERATIONS.md)） | 引き継ぎでこの文書を渡す |
+| 担当者の交代 | 運用が止まる | 手順を文書にまとめた（この文書、[OPERATIONS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/OPERATIONS.md)） | 引き継ぎでこの文書を渡す |
 
 ## 6. 定期の保守
 
@@ -98,8 +98,8 @@
 | 調査のたび | ログの最後の行が「終了: 成功」か |
 | 毎月 | 回収。`preview` で回収結果と警告を確かめる |
 | 3 か月ごと | syft を新しい版にする（CI が最新の版で通っていることを確かめてから）。`pip install -U` で依存ライブラリを更新する。実データの監査（`python tools/audit_vulndb.py --db-dir vulndb --inventory-dir inventory`） |
-| 半年ごと | 他のツール（Grype など）と結果を比べる（[COMPARISON.md](COMPARISON.md) の手順）。比べるツールも最新の版にし、データの作成日時を確かめる |
-| ツールを更新したとき | [CHANGELOG.md](../CHANGELOG.md) を読む。CI が通っている版（リリース）を使う |
+| 半年ごと | 他のツール（Grype など）と結果を比べる（[COMPARISON.md](https://github.com/hsgwa/cve_chk/blob/main/docs/COMPARISON.md) の手順）。比べるツールも最新の版にし、データの作成日時を確かめる |
+| ツールを更新したとき | [CHANGELOG.md](https://github.com/hsgwa/cve_chk/blob/main/CHANGELOG.md) を読む。CI が通っている版（リリース）を使う |
 
 ## 7. 判定できない範囲（まとめ）
 
@@ -109,8 +109,8 @@
 | 実行ファイル本体（カーネルのイメージ、node・python のバイナリ、Go / Rust 製の exe の内部） | パッケージの情報が無い（CPE での照合は行わない） | OS パッケージ（カーネル、python3 など）として入っていれば照合される。それ以外は製品名と版の条件で書く |
 | Windows の OS 以外の Microsoft 製品（Office、SQL Server、.NET ランタイムなど） | Windows OS の判定は OS のビルド番号だけを見る | 会社公表リストに製品名と版の条件を書く（インストール済みソフトの版と照合する） |
 | Ubuntu の修正版がまだ無い CVE | OSV.dev の Ubuntu のデータに載らない | 修正版が出ると載る。急ぐものは Ubuntu の告知で確かめる |
-| RHEL の追加製品（OpenShift、JBoss など）、延長サポート（EUS）、Ubuntu の FIPS / Realtime | 別の系統の情報で、使っていない（[DEFECTS.md](DEFECTS.md) の 4 章） | 該当するホストは製品の告知で確かめる |
-| コンテナの中身、Lambda の実行環境（ランタイムと OS）、AWS マネージドサービス側 | 回収の対象外 | Lambda のデプロイ用 zip・レイヤー、war・jar は `zk scan-file` で調べる。コンテナイメージは syft で回収する（[USAGE.md](USAGE.md) の「zip・jar・war などのファイルを調べる（Lambda など）」）。ランタイムのサポート終了日は AWS の文書で確かめる |
+| RHEL の追加製品（OpenShift、JBoss など）、延長サポート（EUS）、Ubuntu の FIPS / Realtime | 別の系統の情報で、使っていない（[DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) の 4 章） | 該当するホストは製品の告知で確かめる |
+| コンテナの中身、Lambda の実行環境（ランタイムと OS）、AWS マネージドサービス側 | 回収の対象外 | Lambda のデプロイ用 zip・レイヤー、war・jar は `zk scan-file` で調べる。コンテナイメージは syft で回収する（[USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の「zip・jar・war などのファイルを調べる（Lambda など）」）。ランタイムのサポート終了日は AWS の文書で確かめる |
 | 版を取れない製品（HULFT などで版の取り方を書いていないもの） | 存在だけ分かる | 「影響あり（比較不能）」になる。版の取り方を書く |
 | 権限不足で読めなかったフォルダ、走査範囲外のフォルダ | 回収できない | 「収集状況」の「読めなかったフォルダ」「スキャン範囲外で動作中」を見て回収し直す |
 | 実際に攻撃できるか | 版の一致だけを見る | 人が判断する |
