@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zeijaku-kakunin"
-version = "0.8.0"
+version = "0.9.0"
 description = "脆弱確認（zk）: オフライン環境のソフトの一覧と会社公表の脆弱性リストを突き合わせる CLI"
 requires-python = ">=3.10"
 license = "MIT-0"

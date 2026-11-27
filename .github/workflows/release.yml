@@ -1,0 +1,44 @@
+# Attach the no-install packages to each GitHub release.
+#
+#   zeijaku-kakunin-<version>-windows-x64.zip    Python bundled (python.org embeddable package), nothing to install
+#   zeijaku-kakunin-<version>-windows-arm64.zip  same, for Windows on ARM
+#   zeijaku-kakunin-<version>.zip                without Python (needs Python 3.10 or later; also for Linux)
+name: release
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the packages to (e.g. v0.9.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    env:
+      PYTHON_EMBED: "3.13.5"
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build
+        run: |
+          for arch in amd64 arm64; do
+            curl -sSfL -o "embed-$arch.zip" "https://www.python.org/ftp/python/${PYTHON_EMBED}/python-${PYTHON_EMBED}-embed-$arch.zip"
+            sha256sum "embed-$arch.zip"
+          done
+          python tools/build_portable.py --out dist --python-embed embed-amd64.zip --name windows-x64
+          python tools/build_portable.py --out dist --python-embed embed-arm64.zip --name windows-arm64
+          python tools/build_portable.py --out dist
+          ls -la dist/*.zip
+      - name: Attach to the release
+        run: gh release upload "$TAG" dist/*.zip --clobber

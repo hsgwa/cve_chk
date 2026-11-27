@@ -17,7 +17,7 @@
 
 ## 2. 管理 PC の準備
 
-1. Python 3.10 以降を入れ、リリースの版を取得して `pip install -e .` する（[USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の 1 章）。
+1. リリースのページから `zeijaku-kakunin-<版>-windows-x64.zip` を取得し、管理 PC のローカルのディスクに展開する（インストールも管理者の権限も不要。Python も同梱。[USAGE.md](https://github.com/hsgwa/cve_chk/blob/main/docs/USAGE.md) の 1 章）。
 2. 作業フォルダを作る（ローカルのディスク。`%TEMP%` のような自動で掃除される場所は不可）。
 
    ```
@@ -29,7 +29,7 @@
      logs\             実行ログ（自動。90 日で消える）
    ```
 
-3. 初回のデータ取得: `zk update --inventory-dir D:\vuln\inventory`（数十分、2.3 GB 程度。空きは 5 GB 以上を用意する）。
+3. 初回のデータ取得（展開したフォルダで）: `zk.cmd update --inventory-dir D:\vuln\inventory`（数十分、2.3 GB 程度。空きは 5 GB 以上を用意する）。
 4. 試しに調査を実行する（ツールのフォルダで）:
 
    ```

@@ -121,6 +121,48 @@ jobs:
           if (-not (Test-Path "$base\reports\$latest\report_changes.csv")) { throw "the second run did not compare with the first" }
           Write-Host "check_all OK: $($reports.Name -join ', ') latest=$latest"
 
+  portable:
+    # The no-install package: build it, then use it on Windows Server with only the bundled Python
+    # (the tool is not pip-installed in this job).
+    runs-on: windows-latest
+    env:
+      PYTHON_EMBED: "3.13.5"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build the portable package (Windows x64, Python bundled)
+        shell: bash
+        run: |
+          curl -sSfL -o embed.zip "https://www.python.org/ftp/python/${PYTHON_EMBED}/python-${PYTHON_EMBED}-embed-amd64.zip"
+          python tools/build_portable.py --out dist --python-embed embed.zip --name windows-x64
+      - name: Use it from a fresh folder
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Expand-Archive -LiteralPath (Get-ChildItem dist\*.zip).FullName -DestinationPath C:\portable
+          $zk = (Get-ChildItem C:\portable -Directory).FullName
+          $repo = $PWD.Path
+          Push-Location $zk
+          & .\zk.cmd --version
+          if ($LASTEXITCODE) { throw 'zk.cmd --version failed' }
+          & .\python\python.exe -c "import sys; assert all(p.startswith(sys.prefix) for p in sys.path), sys.path; print('bundled Python only sees its own folder')"
+          & .\zk.cmd check --inventory-dir "$repo\examples\inventory" --env-master "$repo\examples\env_master.csv" `
+              --advisory "$repo\examples\advisory_list.xlsx" --db-dir "$repo\examples\vulndb" --cache-dir "$repo\examples\cache" `
+              --offline --base-date 2026-11-20 --out-dir C:\portable-out
+          if ($LASTEXITCODE) { throw "zk.cmd check failed: $LASTEXITCODE" }
+          $base = 'C:\portable-work'
+          New-Item -ItemType Directory -Force "$base\advisory", "$base\inventory" | Out-Null
+          Copy-Item -Recurse "$repo\examples\inventory\*" "$base\inventory\"
+          Copy-Item "$repo\examples\advisory_list.xlsx" "$base\advisory\"
+          Copy-Item "$repo\examples\env_master.csv" "$base\env_master.csv"
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check_all.ps1 -BaseDir $base -DbDir "$repo\examples\vulndb" -SkipDbUpdate
+          if ($LASTEXITCODE) { throw "check_all.ps1 failed: $LASTEXITCODE" }
+          Pop-Location
+          if (-not (Test-Path C:\portable-out\report.xlsx)) { throw 'no report' }
+          Write-Host 'portable OK'
+
   linux-e2e:
     strategy:
       fail-fast: false

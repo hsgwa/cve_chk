@@ -27,8 +27,8 @@ param(
     [string]$DbDir,
     # 設定ファイル（省略時はツールのフォルダの config.yaml）
     [string]$Config,
-    # python.exe の場所（省略時は PATH の python）
-    [string]$Python = 'python',
+    # python.exe の場所（省略時は、ツールのフォルダに python\ があればそれ、無ければ PATH の python）
+    [string]$Python,
     # ツールのフォルダ（省略時はこのスクリプトの1つ上）
     [string]$WorkDir,
     # 脆弱性データの更新をしない（同じ日に更新済みの場合など）
@@ -40,6 +40,14 @@ param(
 $ErrorActionPreference = 'Continue'
 if (-not $WorkDir) { $WorkDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path) }
 Set-Location -LiteralPath $WorkDir
+# インストール不要の配布物（ポータブル版）なら、同梱の Python と zk.pyz を使う。無ければ pip で入れたものを使う
+if (-not $Python) {
+    $bundled = Join-Path $WorkDir 'python\python.exe'
+    $Python = if (Test-Path -LiteralPath $bundled) { $bundled } else { 'python' }
+}
+$zkPyz = Join-Path $WorkDir 'zk.pyz'
+# @(...) で必ず配列にする（要素が 1 つだと文字列になり、@toolArgs で 1 文字ずつに分かれてしまう）
+[string[]]$toolArgs = @(if (Test-Path -LiteralPath $zkPyz) { $zkPyz } else { '-m'; 'zeijaku_kakunin' })
 $BaseDir = (Resolve-Path -LiteralPath $BaseDir).Path
 $inventoryDir = Join-Path $BaseDir 'inventory'
 $advisoryDir = Join-Path $BaseDir 'advisory'
@@ -60,9 +68,9 @@ $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 
 function Invoke-Tool([string[]]$Arguments) {
-    Write-Log ('実行: {0} -m zeijaku_kakunin {1}' -f $Python, ($Arguments -join ' '))
+    Write-Log ('実行: {0} {1} {2}' -f $Python, ($toolArgs -join ' '), ($Arguments -join ' '))
     try {
-        & $Python -m zeijaku_kakunin @Arguments 2>&1 | ForEach-Object {
+        & $Python @toolArgs @Arguments 2>&1 | ForEach-Object {
             # 標準エラーの行は ErrorRecord になるので、元の文字列を取り出す
             if ($_ -is [System.Management.Automation.ErrorRecord]) {
                 $text = if ($null -ne $_.TargetObject) { "$($_.TargetObject)" } else { $_.Exception.Message }

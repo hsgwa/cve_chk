@@ -1,5 +1,15 @@
 # 変更履歴
 
+## 0.9.0（2026-11-27）
+
+### 追加
+- **インストール不要の配布物（ポータブル版）**。リリースに zip を付ける: Windows x64 / ARM64 用（python.org の「埋め込み用」Python を同梱。Python のインストールも不要）と、Python 3.10 以降で動く版。展開して `zk.cmd` を使い、要らなくなればフォルダごと消す。中身はツールと依存ライブラリを 1 つにした `zk.pyz`、`zk.cmd` / `zk`、`scripts/check_all.ps1`、回収スクリプト、`config.yaml`、ライセンス（同梱したライブラリと Python のものを含む）。
+- CI で、ポータブル版を作り、Windows Server で同梱の Python だけを使って照合と `check_all.ps1` を試す。リリースを公開すると、配布物を作って添付する（`.github/workflows/release.yml`）。
+
+### 修正
+- `check_all.ps1` の起動の引数の不具合（[docs/DEFECTS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/DEFECTS.md) の #48）。
+- 名前の変更で、文書のアンインストールの手順の一部が誤っていた（`pip uninstall -y zk` → `zeijaku-kakunin`、0.4.0 以前のタスク名）。
+
 ## 0.8.0（2026-11-27）
 
 ### 変更（名前）

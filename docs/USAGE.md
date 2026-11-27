@@ -16,13 +16,40 @@
 
 ## 1. セットアップ（管理 PC）
 
-Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.8.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
+### インストール不要で使う（推奨）
+
+[リリース](https://github.com/hsgwa/cve_chk/releases)のページから、管理 PC に合ったファイルを取得して展開するだけです。**何もインストールせず、管理者の権限も要りません。** 要らなくなったら、展開したフォルダごと消します。
+
+| ファイル | 対象 |
+|---|---|
+| `zeijaku-kakunin-<版>-windows-x64.zip` | ふつうの Windows の PC（Python も同梱。Python のインストールも不要） |
+| `zeijaku-kakunin-<版>-windows-arm64.zip` | ARM の Windows の PC（同上） |
+| `zeijaku-kakunin-<版>.zip` | Python 3.10 以降が入っている PC（Linux も可） |
+
+展開したフォルダで、`zk.cmd`（Linux は `./zk`）をコマンドとして使います。
+
+```
+zk.cmd update
+zk.cmd check --inventory-dir D:\vuln\inventory --advisory D:\vuln\advisory\通達.xlsx --out-dir D:\vuln\reports\手動
+powershell -ExecutionPolicy Bypass -File scripts\check_all.ps1 -BaseDir D:\vuln
+```
+
+- 中身: `zk.pyz`（ツール本体と依存ライブラリを 1 つにしたもの）、`zk.cmd` / `zk`（入口）、`python\`（同梱の Python。python.org の「埋め込み用」をそのまま置いたもの）、`scripts\check_all.ps1`、`collectors\`（対象マシンで使う回収スクリプト）、`config.yaml`、ライセンス。
+- 同梱の Python は、展開したフォルダの中だけを使い、PC に入っている Python やその設定には触れません。
+- 脆弱性データ（`vulndb`）やキャッシュは、コマンドを実行したフォルダの下にできます（`--db-dir` などで変更）。`check_all.ps1` は展開したフォルダの下に作ります。
+- 以下の説明の `zk` は、このやり方では `zk.cmd` と読み替えてください。
+
+### pip で入れて使う（開発者向け）
+
+Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.9.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
 
 ```
 pip install -e .
 ```
 
 `zk` コマンドが使えるようになります（パッケージ名は `zeijaku-kakunin`）。
+
+### コマンド
 
 | コマンド | すること |
 |---|---|
@@ -404,14 +431,16 @@ GitHub Actions の CI（`.github/workflows/ci.yml`）が、push のたびに単�
 
 管理 PC に残るものと、消す手順です。**レポート（作業フォルダの `reports` など）は対応の証跡なので、必要なら先に保管してください。**
 
+**インストール不要で使っている場合**は、展開したフォルダと、作業フォルダ・脆弱性データを消すだけです（PC には何も登録していません）。
+
 | 残るもの | 場所 | 消し方 |
 |---|---|---|
-| ツールの登録（pip） | Python の中（`zk` コマンドなど） | `python -m pip uninstall -y zk` |
-| 依存ライブラリ | Python の中 | 他で使っていなければ `python -m pip uninstall -y pyyaml packaging click openpyxl et-xmlfile` |
-| ツールのフォルダ | 取得（`git clone` など）したフォルダ。中に、既定の脆弱性データ `vulndb`、Microsoft のデータのキャッシュ `cache`、出力 `out` / `work` ができる | フォルダごと削除する |
+| ツールのフォルダ | 展開したフォルダ、または取得（`git clone` など）したフォルダ。中に、既定の脆弱性データ `vulndb`、Microsoft のデータのキャッシュ `cache`、出力 `out` / `work` ができる | フォルダごと削除する |
 | 作業フォルダ | `check_all.ps1 -BaseDir` に指定したフォルダ（回収物、会社公表リスト、環境マスタ、レポート、ログ、キャッシュ） | フォルダごと削除する |
 | 脆弱性データ（別の場所に置いた場合） | `--db-dir` や `config.yaml` の `vulndb.dir` に指定したフォルダ | フォルダごと削除する |
-| Python | このツールのためだけに入れた場合 | Windows の「アプリ」から Python をアンインストールする |
-| （0.4.0 以前を使っていた場合）タスクスケジューラの登録 | タスク名 `zk update` / `zk check` | `Unregister-ScheduledTask -TaskName "zk update" -Confirm:$false`（`zk check` も同じ）。0.5.0 以降は登録しない |
+| （pip で入れた場合）ツールの登録 | Python の中（`zk` コマンドなど） | `python -m pip uninstall -y zeijaku-kakunin`（0.7.0 以前は `vuln-triage`） |
+| （pip で入れた場合）依存ライブラリ | Python の中 | 他で使っていなければ `python -m pip uninstall -y pyyaml packaging click openpyxl et-xmlfile` |
+| （pip で入れた場合）Python | このツールのためだけに入れた場合 | Windows の「アプリ」から Python をアンインストールする |
+| （0.4.0 以前を使っていた場合）タスクスケジューラの登録 | タスク名 `vuln-triage db-update` / `vuln-triage run` | `Unregister-ScheduledTask -TaskName "vuln-triage db-update" -Confirm:$false`（`vuln-triage run` も同じ）。0.5.0 以降は登録しない |
 
 このツールは、上の表のほかにレジストリ・サービス・タスク・環境変数を変更しません。
