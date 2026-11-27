@@ -87,17 +87,18 @@ jobs:
       - name: Match (real Maven data, Windows OS through MSRC)
         shell: bash
         run: |
-          printf 'env_name,exposure,system_name\nwin-server,internet,CI\n' > /c/e2e/env_master.csv
-          printf '通達番号,CVE番号,製品名,影響バージョン\nT-1,CVE-2021-44228,log4j-core,\nT-2,,log4j-core,<2.17.1\n' > /c/e2e/advisory.csv
-          zk update --db-dir /c/e2e/vulndb --ecosystem Maven
-          zk check --inventory-dir /c/e2e/inventory --env-master /c/e2e/env_master.csv \
-            --advisory /c/e2e/advisory.csv --db-dir /c/e2e/vulndb --cache-dir /c/e2e/cache --out-dir /c/e2e/report
+          printf '通達番号,CVE番号\nT-1,CVE-2021-44228\nT-2,CVE-2024-21338\n' > /c/e2e/cve_list.csv
+          zk update --db-dir /c/e2e/vulndb --inventory-dir /c/e2e/inventory/win-server
+          zk check /c/e2e/inventory/win-server --cve-list /c/e2e/cve_list.csv --db-dir /c/e2e/vulndb \
+            --cache-dir /c/e2e/cache --out-dir /c/e2e/report
           python - <<'EOF'
           import csv
-          rows = list(csv.DictReader(open(r"C:\e2e\report\report_detail.csv", encoding="utf-8-sig")))
-          got = {(r["社内通達ID"], r["影響有無"]) for r in rows}
-          assert got == {("T-1", "影響あり"), ("T-2", "影響あり")}, got
-          assert all(r["社内ランク"] == "Rank-S" for r in rows if r["社内通達ID"] == "T-1"), rows
+          rows = {r["CVE"]: r for r in csv.DictReader(open(r"C:\e2e\report\report_cve.csv", encoding="utf-8-sig"))}
+          assert rows["CVE-2021-44228"]["影響有無"] == "影響あり" and rows["CVE-2021-44228"]["修正バージョン"], rows
+          # Windows OS の CVE は Microsoft の公開データとビルド番号で判定できる（判定不能にならない）
+          assert rows["CVE-2024-21338"]["影響有無"] in ("影響あり", "影響なし"), rows["CVE-2024-21338"]
+          updates = list(csv.DictReader(open(r"C:\e2e\report\report_updates.csv", encoding="utf-8-sig")))
+          assert any(u["ソフトウェア"].endswith("log4j-core") and u["この版以上に更新"] for u in updates), updates[:3]
           print("matching OK")
           EOF
 
@@ -106,10 +107,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $base = 'C:\e2e\work'
-          New-Item -ItemType Directory -Force "$base\advisory", "$base\inventory" | Out-Null
+          zk init $base
           Copy-Item -Recurse C:\e2e\inventory\win-server "$base\inventory\"
-          Copy-Item C:\e2e\advisory.csv "$base\advisory\advisory-2026-11.csv"
-          Copy-Item C:\e2e\env_master.csv "$base\env_master.csv"
+          Copy-Item C:\e2e\cve_list.csv "$base\cve_list\cve-2026-11.csv"
           foreach ($i in 1, 2) {
             powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_all.ps1 -BaseDir $base -DbDir C:\e2e\vulndb
             if ($LASTEXITCODE -ne 0) { throw "run $i failed: $LASTEXITCODE" }
@@ -118,7 +118,7 @@ jobs:
           $latest = (Get-Content "$base\reports\latest.txt").Trim()
           $reports = @(Get-ChildItem "$base\reports" -Directory)
           if ($reports.Count -ne 2) { throw "expected 2 report folders, got $($reports.Count)" }
-          if (-not (Test-Path "$base\reports\$latest\report_changes.csv")) { throw "the second run did not compare with the first" }
+          if (-not (Test-Path "$base\reports\$latest\win-server\report_changes.csv")) { throw "the second run did not compare with the first" }
           Write-Host "check_all OK: $($reports.Name -join ', ') latest=$latest"
 
   portable:
@@ -154,13 +154,19 @@ jobs:
           & .\zk.cmd init $base
           if ($LASTEXITCODE) { throw "zk.cmd init failed: $LASTEXITCODE" }
           Copy-Item -Recurse ".\examples\inventory\*" "$base\inventory\"
-          Copy-Item ".\examples\advisory_list.xlsx" "$base\advisory\"
-          Copy-Item ".\examples\env_master.csv" "$base\env_master.csv" -Force
+          Copy-Item ".\examples\cve_list.xlsx" "$base\cve_list\"
           powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check_all.ps1 -BaseDir $base -DbDir ".\examples\vulndb" -SkipDbUpdate
           if ($LASTEXITCODE) { throw "check_all.ps1 failed: $LASTEXITCODE" }
-          if (-not (Test-Path "$base\reports\$(Get-Content "$base\reports\latest.txt")\report.xlsx")) { throw 'no report from check_all.ps1' }
+          $latest = Join-Path "$base\reports" (Get-Content "$base\reports\latest.txt")
+          foreach ($server in 'batch-emr', 'web-ec2', 'win-app01', 'win-legacy') {
+            if (-not (Test-Path "$latest\$server\report.xlsx")) { throw "no report for $server from check_all.ps1" }
+          }
+          # 1 台だけを調べる
+          & .\zk.cmd check "$base\inventory\web-ec2" --db-dir ".\examples\vulndb" --out-dir C:\portable-one
+          if ($LASTEXITCODE) { throw "zk.cmd check failed: $LASTEXITCODE" }
           Pop-Location
-          if (-not (Test-Path C:\portable-out\report.xlsx)) { throw 'no report' }
+          if (-not (Test-Path C:\portable-out\web-ec2\report.xlsx)) { throw 'no report from zk demo' }
+          if (-not (Test-Path C:\portable-one\report_vulns.csv)) { throw 'no report from zk check' }
           Write-Host 'portable OK'
 
   linux-e2e:
@@ -234,19 +240,22 @@ jobs:
 
       - name: Match against freshly downloaded data
         run: |
-          printf 'env_name,exposure,system_name\namazonlinux-2023,internal,CI\nubuntu-24-04,internet,CI\n' > env_master.csv
-          printf '通達番号,CVE番号,製品名,影響バージョン\nT-1,CVE-2021-44228,log4j-core,\n' > advisory.csv
+          printf 'CVE-2021-44228\n' > cve_list.txt
           zk update --db-dir vulndb --inventory-dir inventory
-          zk check --inventory-dir inventory --env-master env_master.csv --advisory advisory.csv \
-            --db-dir vulndb --out-dir report --no-msrc
+          for server in inventory/*/; do
+            name=$(basename "$server")
+            zk check "$server" --cve-list cve_list.txt --db-dir vulndb --out-dir "report/$name" --no-msrc
+          done
           python - <<'EOF'
-          import csv
-          rows = list(csv.DictReader(open("report/report_detail.csv", encoding="utf-8-sig")))
-          got = {(r["該当環境"], r["影響有無"]) for r in rows}
-          assert got == {("amazonlinux-2023", "影響あり"), ("ubuntu-24-04", "影響あり")}, got
-          updates = list(csv.DictReader(open("report/report_updates.csv", encoding="utf-8-sig")))
-          assert any(u["製品・パッケージ名"].endswith("log4j-core") and u["この版以上に更新"] for u in updates), updates[:3]
-          print("matching OK;", len(updates), "packages to update")
+          import csv, pathlib
+          folders = sorted(pathlib.Path("report").iterdir())
+          assert [f.name for f in folders] == ["amazonlinux-2023", "ubuntu-24-04"], folders
+          for folder in folders:
+              rows = list(csv.DictReader(open(folder / "report_cve.csv", encoding="utf-8-sig")))
+              assert [(r["CVE"], r["影響有無"]) for r in rows] == [("CVE-2021-44228", "影響あり")], (folder.name, rows)
+              updates = list(csv.DictReader(open(folder / "report_updates.csv", encoding="utf-8-sig")))
+              assert any(u["ソフトウェア"].endswith("log4j-core") and u["この版以上に更新"] for u in updates), updates[:3]
+              print(folder.name, "matching OK;", len(updates), "packages to update")
           EOF
 
       - uses: actions/upload-artifact@v4

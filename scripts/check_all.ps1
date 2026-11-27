@@ -1,20 +1,20 @@
 ﻿<#
 =============================================================================
-check_all.ps1 - 調査をまとめて実行する（脆弱性データの更新 → 照合 → レポート）。調査のたびに実行する
+check_all.ps1 - 作業フォルダのサーバーを 1 台ずつ調べる（脆弱性データの更新 → 1 台ずつ照合 → レポート）
 
   作業フォルダ（-BaseDir）の決まった場所にあるデータで、次を順に行う。
-    1. 脆弱性データの更新（update。-SkipDbUpdate で省略）
-    2. 照合（run）。会社公表リストは advisory\ のうち最も新しいファイルを使う
-    3. レポートを reports\<日付>\ に出す。前回のレポートがあれば「前回との差分」も出す
+    1. 脆弱性データの更新（zk update。-SkipDbUpdate で省略）
+    2. inventory\ の下のサーバーごとに zk check を実行する。
+       cve_list\ に CVE の一覧があれば、最も新しいファイルを使う（無くてもよい）
+    3. レポートを reports\<日付>\<サーバー名>\ に出す。前回のレポートがあれば「前回との差分」も出す
 
-  作業フォルダの構成:
-    <BaseDir>\inventory\<環境名>\   回収物を置く（人が置く）
-    <BaseDir>\advisory\             会社公表リスト（.xlsx / .xlsm / .csv。人が置く。最も新しいものを使う）
-    <BaseDir>\env_master.csv        サーバー一覧（人が用意する。調べる対象マシンの一覧）
-    <BaseDir>\reports\<日付>\       レポート（自動。reports\latest.txt に最新のフォルダ名）
-    <BaseDir>\logs\                 実行ログ（自動。run_YYYYMMDD.log）
+  作業フォルダの構成（zk init で作れる）:
+    <BaseDir>\inventory\<サーバー名>\   回収物（人が置く）
+    <BaseDir>\cve_list\                 CVE の一覧（任意。.xlsx / .xlsm / .csv / .txt。最も新しいものを使う）
+    <BaseDir>\reports\<日付>\           レポート（自動。reports\latest.txt に最新のフォルダ名）
+    <BaseDir>\logs\                     実行ログ（自動。run_YYYYMMDD.log）
 
-  終了コード: 0 = 成功、1 = データの更新の一部に失敗したが照合はできた、2 = 照合できなかった
+  終了コード: 0 = 成功、1 = データの更新の一部に失敗したが照合はできた、2 = 照合できなかったサーバーがある
 
 実行（管理 PC で、ツールのフォルダから）:
   powershell -ExecutionPolicy Bypass -File scripts\check_all.ps1 -BaseDir D:\vuln
@@ -54,8 +54,7 @@ if (-not (Test-Path -LiteralPath $BaseDir -PathType Container)) {
 }
 $BaseDir = (Resolve-Path -LiteralPath $BaseDir).Path
 $inventoryDir = Join-Path $BaseDir 'inventory'
-$advisoryDir = Join-Path $BaseDir 'advisory'
-$envMaster = Join-Path $BaseDir 'env_master.csv'
+$cveListDir = Join-Path $BaseDir 'cve_list'
 $reportsDir = Join-Path $BaseDir 'reports'
 $logDir = Join-Path $BaseDir 'logs'
 foreach ($dir in @($reportsDir, $logDir)) { [void][System.IO.Directory]::CreateDirectory($dir) }
@@ -96,51 +95,57 @@ $common = @()
 if ($DbDir) { $common += @('--db-dir', $DbDir) }
 if ($Config) { $common += @('--config', $Config) }
 
-if (-not (Get-ChildItem -LiteralPath $inventoryDir -Directory -ErrorAction SilentlyContinue)) {
+$servers = @(Get-ChildItem -LiteralPath $inventoryDir -Directory -ErrorAction SilentlyContinue | Sort-Object Name)
+if ($servers.Count -eq 0) {
     Write-Log ('終了: 失敗。回収物がありません: {0} の下に、対象マシンから持ち出したホストごとのフォルダを置いてください' -f $inventoryDir)
     exit 2
 }
 
-# 1. 脆弱性データの更新
+# 1. 脆弱性データの更新（全サーバーで出てくるソフトの種類をまとめて 1 回）
 $updateCode = 0
 if (-not $SkipDbUpdate) {
     $updateCode = Invoke-Tool (@('update', '--inventory-dir', $inventoryDir) + $common)
     if ($updateCode -ne 0) { Write-Log ('注意: 脆弱性データの更新に失敗したものがあります（終了コード {0}）。前回のデータで照合します' -f $updateCode) }
 }
 
-# 2. 会社公表リスト（最も新しいファイル。Excel が開いている間に作る一時ファイル ~$*.xlsx は除く）
-$advisory = Get-ChildItem -LiteralPath $advisoryDir -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -in '.xlsx', '.xlsm', '.csv' -and -not $_.Name.StartsWith('~$') } |
+# 2. CVE の一覧（任意。最も新しいファイル。Excel が開いている間に作る一時ファイル ~$*.xlsx は除く）
+$cveList = Get-ChildItem -LiteralPath $cveListDir -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -in '.xlsx', '.xlsm', '.csv', '.txt' -and -not $_.Name.StartsWith('~$') } |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $advisory) {
-    Write-Log ('終了: 失敗。会社公表リストがありません: {0}（.xlsx / .xlsm / .csv を置く）' -f $advisoryDir)
-    exit 2
-}
-Write-Log ('会社公表リスト: {0}（更新 {1:yyyy-MM-dd HH:mm}）' -f $advisory.Name, $advisory.LastWriteTime)
+if ($cveList) { Write-Log ('CVE の一覧: {0}（更新 {1:yyyy-MM-dd HH:mm}）' -f $cveList.Name, $cveList.LastWriteTime) }
+else { Write-Log 'CVE の一覧: なし（見つかった脆弱性をすべて出します）' }
 
 # 3. 出力先と、前回のレポート
-$previous = Get-ChildItem -LiteralPath $reportsDir -Directory -ErrorAction SilentlyContinue |
-    Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'report_detail.csv') } |
+$previousRun = Get-ChildItem -LiteralPath $reportsDir -Directory -ErrorAction SilentlyContinue |
     Sort-Object Name -Descending | Select-Object -First 1
 $name = Get-Date -Format 'yyyy-MM-dd'
 if (Test-Path -LiteralPath (Join-Path $reportsDir $name)) { $name = Get-Date -Format 'yyyy-MM-dd_HHmmss' }
-$outDir = Join-Path $reportsDir $name
+$runDir = Join-Path $reportsDir $name
 
-$arguments = @('check', '--inventory-dir', $inventoryDir, '--advisory', $advisory.FullName, '--out-dir', $outDir,
-    '--cache-dir', (Join-Path $BaseDir 'cache')) + $common
-if (Test-Path -LiteralPath $envMaster) { $arguments += @('--env-master', $envMaster) }
-else { Write-Log ('注意: サーバー一覧（env_master.csv）がありません（{0}）。すべての環境を internal として扱い、回収漏れも検出できません' -f $envMaster) }
-if ($previous) { $arguments += @('--previous', $previous.FullName); Write-Log ('前回のレポート: {0}' -f $previous.Name) }
+# 4. 1 台ずつ調べる
+$failed = New-Object System.Collections.Generic.List[string]
+foreach ($server in $servers) {
+    $arguments = @('check', $server.FullName, '--out-dir', (Join-Path $runDir $server.Name),
+        '--cache-dir', (Join-Path $BaseDir 'cache')) + $common
+    if ($cveList) { $arguments += @('--cve-list', $cveList.FullName) }
+    if ($previousRun) {
+        $previous = Join-Path $previousRun.FullName $server.Name
+        if (Test-Path -LiteralPath (Join-Path $previous 'report_vulns.csv')) { $arguments += @('--previous', $previous) }
+    }
+    $code = Invoke-Tool $arguments
+    if ($code -ne 0) { $failed.Add($server.Name); Write-Log ('失敗: {0}（終了コード {1}）' -f $server.Name, $code) }
+}
 
-$runCode = Invoke-Tool $arguments
-if ($runCode -eq 0) {
+if (Test-Path -LiteralPath $runDir) {
     # フォルダ名は英数字だけなので ASCII で書く（PowerShell 5.1 の UTF8 は BOM が付き、他のスクリプトで読みにくい）
     Set-Content -LiteralPath (Join-Path $reportsDir 'latest.txt') -Value $name -Encoding ASCII
-    $exitCode = if ($updateCode -ne 0) { 1 } else { 0 }
-    Write-Log ('終了: 成功。レポート: {0}' -f $outDir)
-} else {
+}
+if ($failed.Count -gt 0) {
     $exitCode = 2
-    Write-Log ('終了: 失敗（照合の終了コード {0}）。ログを確認してください' -f $runCode)
+    Write-Log ('終了: 失敗。調べられなかったサーバー: {0}。ログを確認してください' -f ($failed -join '、'))
+} else {
+    $exitCode = if ($updateCode -ne 0) { 1 } else { 0 }
+    Write-Log ('終了: 成功。{0} 台。レポート: {1}' -f $servers.Count, $runDir)
 }
 
 # 古いログを消す（レポートは証跡なので消さない）

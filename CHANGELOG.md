@@ -1,5 +1,29 @@
 # 変更履歴
 
+## 1.0.0（2026-11-27）
+
+使い方を簡単にした。**0.9 までと使い方が変わる**（下の「移行」）。
+
+### 変更
+- **1 回のコマンドで 1 台を調べる。** `zk check <回収物のフォルダ>`。レポートもサーバーごと（既定 `out\<サーバー名>\`）。`check_all.ps1` は作業フォルダのサーバーを 1 台ずつ調べ、`reports\<日付>\<サーバー名>\` に出す。
+- **会社公表リストは任意で、CVE 番号だけを読む**（`--cve-list`）。書式は問わず、Excel のすべてのシート・セル、CSV、テキストから `CVE-年-番号` を拾う。列の設定（`advisory_input`）は要らない。一覧が無ければ、見つかった脆弱性をすべて出す。
+- レポートを「CVE の判定」「要更新ソフト」「脆弱性の一覧」「前回との差分」「収集状況」にした。判定は 影響あり / 影響なし / 判定不能 だけ。
+- 作業フォルダの CVE の一覧の置き場所を `advisory\` から `cve_list\` にした（`zk init` が作る）。
+- 照合のための Debian のデータ（CVSS の点数用、約 80 MB）を既定では取らない。
+
+### 廃止
+- サーバー一覧（`env_master.csv`、`--env-master`）と、公開区分（internet / internal）。
+- 社内ランク・対応期限・CVSS の出力と、その設定（`rank_matrix` など）。
+- `--only-advisory`、`--scanner none`。
+- 製品名と版の条件、KB 番号による判定と、その設定（`aliases`）。会社公表リストの列の設定（`advisory_input`）。
+- 回収スクリプトの「個別製品の版取得」の表（HULFT、DataMagic など）。これらは脆弱性データに無いので、製品の告知で人が確かめる。
+- 0.7.0 までの旧名のコマンド（`vuln-triage`、`run`、`db-update` など）。
+
+### 移行
+- `zk check --inventory-dir inventory --advisory 通達.xlsx` → `zk check inventory\<サーバー名> --cve-list 通達.xlsx`（台数分）、または `check_all.ps1`。
+- 作業フォルダ: `advisory\` の通達を `cve_list\` に移す。`env_master.csv` は使わない（消してよい）。
+- `config.yaml` の `rank_matrix`、`default_rank`、`rank_order`、`aliases`、`advisory_input` は無視される（消してよい）。
+
 ## 0.9.2（2026-11-27）
 
 ### 修正

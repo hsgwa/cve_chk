@@ -1,4 +1,4 @@
-"""CSV / Excel / 標準出力サマリの書き出し。"""
+"""CSV と Excel の書き出し（1 台のサーバーぶん）。"""
 from __future__ import annotations
 
 import csv
@@ -6,14 +6,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from ..matching.rank import rank_sort_key
-from ..models import AFFECTED, NOT_APPLICABLE, UNKNOWN, UNUSED, Advisory, EnvInventory
-from ..verdict import JudgeResult
+from ..judge import Result
+from ..models import AFFECTED, AFFECTED_UNCOMPARABLE, NOT_AFFECTED, UNKNOWN, EnvInventory
 from . import tables
 
-_FILL = {
-    AFFECTED: "F8CBAD", UNKNOWN: "FFE699", "影響なし": "C6E0B4", NOT_APPLICABLE: "D9D9D9", UNUSED: "DDEBF7",
-}
+_FILL = {AFFECTED: "F8CBAD", AFFECTED_UNCOMPARABLE: "F8CBAD", UNKNOWN: "FFE699", NOT_AFFECTED: "C6E0B4"}
 
 
 def write_csv(path: Path, header: list[str], rows: list[list[str]]) -> None:
@@ -24,7 +21,7 @@ def write_csv(path: Path, header: list[str], rows: list[list[str]]) -> None:
         writer.writerows(rows)
 
 
-def _add_sheet(workbook, title: str, header: list[str], rows: list[list[str]], status_columns: list[int] = ()):
+def _add_sheet(workbook, title: str, header: list[str], rows: list[list[str]], status_column: int | None = None):
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
 
@@ -43,50 +40,22 @@ def _add_sheet(workbook, title: str, header: list[str], rows: list[list[str]], s
         longest = max([len(str(name))] + [len(str(r[index - 1]).split("\n")[0]) for r in rows[:500]])
         sheet.column_dimensions[get_column_letter(index)].width = min(max(10, longest * 1.7 + 2), 60)
     top = Alignment(vertical="top", wrap_text=True)     # 1 つを使い回す（行ごとに作ると数万行で遅い）
-    fills = {color: PatternFill("solid", fgColor=color) for color in _FILL.values()}
+    fills = {color: PatternFill("solid", fgColor=color) for color in set(_FILL.values())}
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = top
-        for column in status_columns:
-            cell = row[column]
-            color = _FILL.get(tables.simple_status(str(cell.value or "")))
-            if not color and str(cell.value or "").startswith(AFFECTED):
-                color = _FILL[AFFECTED]
+        if status_column is not None:
+            color = _FILL.get(str(row[status_column].value or ""))
             if color:
-                cell.fill = fills[color]
+                row[status_column].fill = fills[color]
     return sheet
-
-
-def overview_lines(info: dict[str, Any], config: dict[str, Any], messages: list[str]) -> list[str]:
-    lines = [f"通達 {info['advisories']} 件 × 環境 {info['environments']} 件"]
-    lines.append("総合判定: " + "、".join(f"{k} {v} 件" for k, v in info["overall"].items()))
-    if info["rank"]:
-        ranks = sorted(info["rank"].items(), key=lambda kv: rank_sort_key(kv[0], config))
-        lines.append("影響ありのランク別（行数）: " + "、".join(f"{k} {v}" for k, v in ranks))
-    if info["env_affected"]:
-        lines.append("影響ありの環境別（行数）: " + "、".join(f"{k} {v}" for k, v in sorted(info["env_affected"].items())))
-    if info["overdue"]:
-        lines.append(f"期限超過: {info['overdue']} 行")
-    lines.append(f"通達に無い新規検出（参考）: {info['new_findings']} 件")
-    if info.get("updates"):
-        lines.append(f"要更新パッケージ（環境 × パッケージ。通達と新規検出の両方）: {info['updates']} 件"
-                     "（「要更新パッケージ」シート / report_updates.csv）")
-    if info.get("db"):
-        lines.append("脆弱性データの更新日時: " + "、".join(f"{k} {v.strip()}" for k, v in info["db"].items()))
-    if info["unregistered"]:
-        lines.append("注意: サーバー一覧（env_master.csv）に無いため internal 扱いにした環境: " + "、".join(info["unregistered"]))
-    if info.get("not_collected"):
-        lines.append("注意: env_master に登録済みだが回収データが無い環境（判定不能として出力）: "
-                     + "、".join(info["not_collected"]))
-    lines.extend(f"注意: {m}" for m in messages)
-    return lines
 
 
 def write_reports(
     out_dir: str | Path,
-    advisories: list[Advisory],
-    envs: list[EnvInventory],
-    result: JudgeResult,
+    env: EnvInventory,
+    result: Result,
+    cve_list: list[str] | None,
     config: dict[str, Any],
     today: date,
     xlsx: bool = True,
@@ -94,54 +63,44 @@ def write_reports(
     previous: dict | None = None,
 ) -> tuple[list[Path], list[str]]:
     out = Path(out_dir)
-    summary = tables.summary_table(advisories, result.rows, config)
-    detail = tables.detail_table(result.rows, config)
-    new = tables.detail_table(result.new_findings, config)
-    coverage = tables.coverage_table(envs, today, config)
-    matrix_header, matrix = tables.matrix_table(advisories, result.rows, envs)
-    info = tables.overview(advisories, result.rows, result.new_findings, envs, config, db_info)
-    lines = overview_lines(info, config, result.messages)
+    updates = tables.update_table(result)
+    vulns = tables.vuln_table(result)
+    cves = tables.cve_table(result) if cve_list is not None else None
+    lines = tables.summary_lines(env, result, cve_list, updates, db_info)
 
-    written = [out / "report_summary.csv", out / "report_detail.csv"]
-    write_csv(written[0], tables.SUMMARY_HEADER, summary)
-    write_csv(written[1], tables.DETAIL_HEADER, detail)
-    if new:
-        written.append(out / "report_new_findings.csv")
-        write_csv(written[-1], tables.DETAIL_HEADER, new)
-    updates = tables.update_table(result.rows, result.new_findings, config)
-    if updates:
-        written.append(out / "report_updates.csv")
-        write_csv(written[-1], tables.UPDATE_HEADER, updates)
+    written = []
+    if cves is not None:
+        written.append(out / "report_cve.csv")
+        write_csv(written[-1], tables.CVE_HEADER, cves)
+    written.append(out / "report_updates.csv")
+    write_csv(written[-1], tables.UPDATE_HEADER, updates)
+    written.append(out / "report_vulns.csv")
+    write_csv(written[-1], tables.VULN_HEADER, vulns)
     changes = None
     if previous is not None:
         from .diff import DIFF_HEADER, diff_table
 
-        changes, counts = diff_table(result.rows, result.new_findings, envs, previous, config)
+        changes, counts = diff_table(result, previous)
         written.append(out / "report_changes.csv")
         write_csv(written[-1], DIFF_HEADER, changes)
-        lines.append("前回との差分（環境 × 脆弱性 × パッケージ）: " + "、".join(f"{k} {v} 件" for k, v in counts.items())
+        lines.append("前回との差分: " + "、".join(f"{k} {v} 件" for k, v in counts.items())
                      + "（「前回との差分」シート / report_changes.csv）")
 
     if xlsx:
         from openpyxl import Workbook
-
-        limit = int(config.get("xlsx_max_rows") or 100000)
-        sheets = {"要更新パッケージ": (updates, "report_updates.csv"), "明細": (detail, "report_detail.csv"),
-                  "新規検出（参考）": (new, "report_new_findings.csv"),
-                  "前回との差分": (changes or [], "report_changes.csv")}
-        for name, (rows, csv_name) in sheets.items():
-            if len(rows) > limit:
-                lines.append(f"注意: Excel の「{name}」は先頭 {limit:,} 行だけを書きました"
-                             f"（全 {len(rows):,} 行は {csv_name}。並びはランク・期限の順）")
-        updates, detail, new = updates[:limit], detail[:limit], new[:limit]
         from openpyxl.styles import Font
 
+        limit = int(config.get("xlsx_max_rows") or 100000)
+        for name, rows, csv_name in (("脆弱性の一覧", vulns, "report_vulns.csv"),
+                                     ("前回との差分", changes or [], "report_changes.csv")):
+            if len(rows) > limit:
+                lines.append(f"注意: Excel の「{name}」は先頭 {limit:,} 行だけを書きました（全 {len(rows):,} 行は {csv_name}）")
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "サマリ"
-        sheet.append(["脆弱性トリアージ結果"])
+        sheet.append([f"脆弱性の確認結果: {env.name}"])
         sheet["A1"].font = Font(bold=True, size=14)
-        sheet.append([f"実行日（基準日）: {today.isoformat()}"])
+        sheet.append([f"実行日: {today.isoformat()}"])
         sheet.append([])
         for line in lines:
             sheet.append([line])
@@ -152,17 +111,15 @@ def write_reports(
             sheet.append([f"・{note}"])
         sheet.column_dimensions["A"].width = 120
 
-        _add_sheet(workbook, "通達別一覧", tables.SUMMARY_HEADER, summary, status_columns=[4])
-        _add_sheet(workbook, "要更新パッケージ", tables.UPDATE_HEADER, updates)
+        if cves is not None:
+            _add_sheet(workbook, "CVE の判定", tables.CVE_HEADER, cves, status_column=1)
+        _add_sheet(workbook, "要更新ソフト", tables.UPDATE_HEADER, updates)
         if changes is not None:
             from .diff import DIFF_HEADER
 
             _add_sheet(workbook, "前回との差分", DIFF_HEADER, changes[:limit])
-        _add_sheet(workbook, "通達×環境", matrix_header, matrix,
-                   status_columns=list(range(3, len(matrix_header))))
-        _add_sheet(workbook, "明細", tables.DETAIL_HEADER, detail, status_columns=[6])
-        _add_sheet(workbook, "新規検出（参考）", tables.DETAIL_HEADER, new, status_columns=[6])
-        _add_sheet(workbook, "収集状況", tables.COVERAGE_HEADER, coverage)
+        _add_sheet(workbook, "脆弱性の一覧", tables.VULN_HEADER, vulns[:limit], status_column=1)
+        _add_sheet(workbook, "収集状況", ["項目", "内容"], tables.collection_table(env, today, config))
         written.append(out / "report.xlsx")
         workbook.save(written[-1])
     return written, lines

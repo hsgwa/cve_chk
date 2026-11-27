@@ -3,12 +3,12 @@ import json
 from zeijaku_kakunin.inventory import (
     detect_format,
     load_env_dir,
-    load_env_master,
     load_inventories,
+    load_server,
     normalize_kb,
 )
 from zeijaku_kakunin.purl import parse_purl
-from zeijaku_kakunin.models import KIND_CUSTOM, KIND_EXECUTABLE, KIND_MAVEN, KIND_OS_PACKAGE, KIND_PYPI, KIND_SOFTWARE
+from zeijaku_kakunin.models import KIND_EXECUTABLE, KIND_MAVEN, KIND_OS_PACKAGE, KIND_PYPI, KIND_SOFTWARE
 
 
 def write(path, data, encoding="utf-8"):
@@ -102,7 +102,7 @@ def test_example_windows_inventory(examples):
     assert by_name["log4j-core"].group == "org.apache.logging.log4j"
     assert by_name["HULFT8 for Windows"].version == "8.5.3"
     assert by_name["OpenJDK Platform 8"].kind == KIND_EXECUTABLE
-    assert by_name["HULFT"].kind == KIND_CUSTOM
+    assert "HULFT" not in by_name                   # 個別製品の表の結果（古い回収物）は使わない
     assert env.out_of_scope_running == ["E:\\tools\\agent\\agent.exe"]   # スキャン範囲外で動作中
     assert env.unreadable and not env.incomplete
 
@@ -119,38 +119,30 @@ def test_failed_sections_and_incomplete(tmp_path):
     env = load_env_dir(tmp_path / "w")
     assert env.hotfixes is None                       # 失敗した KB 情報は「回収なし」
     assert env.sections["hotfixes"].status == "failed"
-    assert [p.name for p in env.failed_probes] == ["HULFT"]
     assert env.incomplete                             # completed が無い = 途中で中断
 
 
 def test_linux_osinfo_with_emr(examples):
     env = load_env_dir(examples / "inventory" / "batch-emr")
     assert env.emr_release == "emr-6.15.0"
-    emr = next(c for c in env.components if c.name == "amazon-emr")
-    assert emr.version == "6.15.0"
-    datamagic = next(c for c in env.components if c.name == "DataMagic")
-    assert datamagic.version == "" and datamagic.kind == KIND_CUSTOM
+    names = {c.name for c in env.components}
+    assert "amazon-emr" not in names and "DataMagic" not in names   # 製品名で照合しないので部品にしない
 
 
-def test_env_master_and_unregistered(examples):
-    master = load_env_master(examples / "env_master.csv")
-    assert master["web-ec2"]["exposure"] == "internet"
-    envs = {e.name: e for e in load_inventories(examples / "inventory", master)}
-    assert envs["web-ec2"].exposure == "internet" and envs["web-ec2"].registered
-    assert envs["win-legacy"].exposure == "internal" and not envs["win-legacy"].registered
+def test_load_server_and_inventories(examples, tmp_path):
+    """1 台のフォルダはそのまま読む。複数台を並べたフォルダを zk check に渡したら、1 台ずつ指定するよう案内する。"""
+    import pytest
 
-
-def test_env_master_without_folder_is_reported(tmp_path):
-    """env_master にあるのに回収フォルダが無い環境を、黙って消さずに残す（回収漏れに気づけるように）。"""
-    (tmp_path / "inv" / "web").mkdir(parents=True)
-    master_csv = tmp_path / "env_master.csv"
-    master_csv.write_text("env_name,exposure,system_name\nweb,internet,A\nforgotten,internet,B\n", encoding="utf-8")
-    envs = {e.name: e for e in load_inventories(tmp_path / "inv", load_env_master(master_csv))}
-    assert set(envs) == {"web", "forgotten"}
-    missing = envs["forgotten"]
-    assert missing.not_collected and missing.registered and missing.exposure == "internet"
-    assert any("回収フォルダ" in w for w in missing.warnings)
-    assert not envs["web"].not_collected
+    env = load_server(examples / "inventory" / "web-ec2")
+    assert env.name == "web-ec2" and env.components
+    with pytest.raises(ValueError, match="1 台ずつ"):
+        load_server(examples / "inventory")
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(ValueError, match="回収ファイル"):
+        load_server(tmp_path / "empty")
+    # zk update などは、1 台のフォルダでも複数台を並べたフォルダでも読める
+    assert [e.name for e in load_inventories(examples / "inventory" / "web-ec2")] == ["web-ec2"]
+    assert len(load_inventories(examples / "inventory")) == 4
 
 
 def test_plain_syft_sbom_without_os_info(examples, tmp_path, config):

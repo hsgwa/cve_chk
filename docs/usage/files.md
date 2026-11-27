@@ -4,18 +4,17 @@
 
 ```
 D:\vuln\
-  inventory\<環境名>\   回収物（人が置く）
-  advisory\             会社公表リスト（人が置く。最も新しいファイルを使う）
-  env_master.csv        サーバー一覧（人が用意する）
-  reports\<日付>\       レポート（自動。reports\latest.txt に最新のフォルダ名）
-  logs\                 実行ログ（自動。90 日で消える）
+  inventory\<サーバー名>\   回収物（人が置く）
+  cve_list\                CVE の一覧（任意。人が置く。最も新しいファイルを使う）
+  reports\<日付>\<サーバー名>\   レポート（自動。reports\latest.txt に最新の日付）
+  logs\                    実行ログ（自動。90 日で消える）
 ```
 
 `zk init D:\vuln` で作れます。ローカルのディスクに作ります。`%TEMP%` など自動で掃除される場所は使いません。
 
-## 回収物 `inventory\<環境名>\`
+## 回収物 `inventory\<サーバー名>\`
 
-フォルダ名が環境名になります。
+サーバー 1 台につきフォルダ 1 つです。フォルダ名がサーバー名になります。
 
 ```
 inventory\
@@ -35,52 +34,19 @@ inventory\
 | CycloneDX JSON（`*.json`） | syft、Amazon Inspector など |
 | `winget export`、`Get-HotFix \| ConvertTo-Json`、`VersionInfo` の JSON | Windows のコマンド |
 
-## サーバー一覧 `env_master.csv`
+## CVE の一覧 `cve_list\`
 
-調べる対象マシンを 1 行ずつ書いた表です。Excel かメモ帳で書き、CSV で保存します。
+調べたい CVE 番号の一覧です。**無くてもかまいません。** 無ければ、見つかった脆弱性をすべてレポートに出します。
 
-```
-env_name,exposure,system_name
-web-ec2,internet,受発注Web
-batch-emr,internal,分析基盤
-```
+- 形式: Excel（`.xlsx` / `.xlsm`）、CSV、テキスト。古い Excel 形式（`.xls`）は `.xlsx` で保存し直します。
+- **書式は問いません。** すべてのシートのすべてのセルから、`CVE-年-番号` の形の文字列を拾います。会社の通達の Excel をそのまま置けます。列の名前や並びを設定する必要はありません。
+- 全角や小文字（`ｃｖｅ－２０２１－４４２２８`）でも読みます。同じ CVE が何度出てきても 1 つにします。
+- `CVE2024-0001`（ハイフン抜け）や `CVE-2024-123`（桁不足）のような書き損じは、場所を示して警告します。`zk preview <回収物> --cve-list <ファイル>` で確かめられます。
+- CVE 番号の無い通達（製品名と版だけのもの）は読めません。そのような製品は、レポートの「脆弱性の一覧」や回収物で人が確かめます。
 
-| 列 | 書くこと |
-|---|---|
-| `env_name` | `inventory\` の下のフォルダ名（ふつうはホスト名） |
-| `exposure` | `internet`（インターネットに公開）か `internal`（社内だけ） |
-| `system_name` | システム名（メモ。空でもよい） |
+例（会社の通達の Excel）:
 
-使い道は 2 つです。
-
-- **対応期限を決める。** `internet` のサーバーは期限が短くなります（[report.md](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/report.md) の「社内ランクと対応期限」）。書いていないサーバーは `internal` として扱い、警告します。
-- **回収し忘れに気づく。** 書いたのに回収物が無いサーバーは「判定不能（回収漏れ）」と出ます。対象のサーバーはすべて書きます。
-
-無くても動きますが、上の 2 つが働きません。
-
-## 会社公表リスト `advisory\*.xlsx` / `.xlsm` / `.csv`
-
-会社の Excel をそのまま置きます。見出しの対応は `config.yaml` の `advisory_input` に書きます（`columns`、`sheet`、見出し行、`fill_merged`）。
-
-| 項目 | 内容 |
-|---|---|
-| `advisory_id` | 通達番号 |
-| `cve_id` | CVE 番号。1 セルに複数あれば CVE ごとに判定 |
-| `product_name` | 製品名 |
-| `affected_version` | 影響する版の条件 |
-| `published_date` | 公表日。対応期限の起点 |
-| `company_rank` / `deadline_days` | 社内ランクと期限日数。書いてあれば最優先 |
-| `note` | 備考 |
-
-1 行の書き方:
-
-| 種類 | 書き方 | 判定 |
+| 通達番号 | CVE番号 | 備考 |
 |---|---|---|
-| CVE | `cve_id`。`product_name` と `affected_version` も書くと精度が上がる | 脆弱性データ。Windows OS は OS のビルド番号 |
-| 製品名＋版 | `product_name` と `affected_version`（例 `>=2.0.0,<2.17.1`、`<=3.0.12`、`9.0.*`） | 回収物の名前と版 |
-| Windows パッチ | `product_name` に KB 番号、`affected_version` に `missing`。`KB5034441\|KB5035845` はどれかが適用済みなら可 | 適用済み KB |
-
-- **版の条件は Excel で文字列として入力します。** 数値の `9.0` は `9` になります。
-- 製品名は大文字小文字と区切り（空白、`_`、`.`、`-`）を無視した完全一致です。`Apache Tomcat*`（ワイルドカード）、`re:^HULFT\d`（正規表現）も使えます。呼び名の違いは `config.yaml` の `aliases` に登録します。
-- **製品名の無い CVE だけの行は、「未使用」と「影響なし」を区別できません**（「影響なし（CVE未検出）」）。
-- 読み落としの恐れがあれば警告します: データのある他のシート（読むのは 1 シートだけ）、縦の結合セル（`fill_merged: false` のとき）、CVE 番号として読めない記載。`zk preview` で確かめられます。
+| ADV-001 | CVE-2021-44228 | Log4Shell |
+| ADV-002 | CVE-2022-42889, CVE-2023-32681 | 1 つのセルに複数あってもよい |

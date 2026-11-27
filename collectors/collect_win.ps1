@@ -14,14 +14,14 @@ collect_win.ps1 - Windows のインベントリ回収（exe の持ち込み不�
 対象マシンに残すもの: このスクリプトが書き込むのは、スクリプトを置いたフォルダの out\ の中だけ
     （-OutDir を指定した場合はそのフォルダ）。レジストリ・サービス・タスクは変更しない。ファイルは読むだけで、
     他のプログラムの書き込み・削除を妨げない開き方をする。回収が終わったら、このフォルダごと消せば元の状態に戻る。
-    Windows が記録するもの（イベントログなど）は残る。個別製品の cmd で書いたコマンドが書き込むものは対象外。
+    Windows が記録するもの（イベントログなど）は残る。
 
 終了コード: 0 = 成功、4 = 空き容量が足りない（何も書かずに止める）
 
 取得するもの:
     OS のビルド番号 / 適用済み KB / インストール済みソフト（レジストリ）/
     exe・dll のバージョン情報 / jar・war・ear の中身（入れ子も）/
-    Python パッケージ / npm パッケージ / NuGet パッケージ / 個別製品の版 /
+    Python パッケージ / npm パッケージ / NuGet パッケージ /
     実行中のプロセスとサービスの場所 / 読めなかったフォルダ
 PowerShell 5.1 以降で動作する。
 =============================================================================
@@ -41,27 +41,6 @@ param(
     # 出力先のドライブの空きがこれ（MB）未満なら、何も書かずに止める
     [int]$MinFreeMB = 500
 )
-
-# ---- 個別製品の版取得 --------------------------------------------------------
-# レジストリや通常の走査で版が取れない製品をここに書く。
-#   fileversion  Target（ワイルドカード可）の exe/dll のバージョン情報を版とする
-#   filetext     Target（ワイルドカード可）のファイルの中身から Regex で版を抜き出す
-#   cmd          Target のコマンドを実行し、出力から Regex で版を抜き出す
-#   exists       Target（ワイルドカード可）があれば「存在する（版不明）」とする
-#   find         Target の名前（ワイルドカード可）のファイル/フォルダを走査対象から探し、
-#                あれば「存在する（版不明）」とする
-# 版不明で見つかった製品は、管理 PC 側で「影響あり（比較不能）」と判定される。
-# ★ HULFT / DataMagic のインストール先と版の取り方は環境ごとに異なるため、
-#    実機で確認して fileversion などの行を追加すること（下はコメントの記入例）。
-$CustomProducts = @(
-    @{ Name = 'HULFT';     Type = 'find'; Target = '*hulft*' }
-    @{ Name = 'DataMagic'; Type = 'find'; Target = '*datamagic*' }
-    # @{ Name = 'HULFT';     Type = 'fileversion'; Target = 'C:\<インストール先>\bin\<主要な exe>.exe' }
-    # @{ Name = 'DataMagic'; Type = 'filetext';    Target = 'C:\<インストール先>\<版が書かれたファイル>'; Regex = '\d+\.\d+\.\d+' }
-)
-# find で探す深さ
-$FindDepth = 3
-# -----------------------------------------------------------------------------
 
 $ErrorActionPreference = 'Continue'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -444,74 +423,6 @@ Set-Section 'python_packages' $pythonPackages $scanStatus $scanReason
 Set-Section 'node_packages' $nodePackages $scanStatus $scanReason
 Set-Section 'dotnet_packages' $dotnetPackages $scanStatus $scanReason
 
-# ---- 個別製品 -----------------------------------------------------------------
-$custom = New-Object System.Collections.Generic.List[object]
-function Add-Custom([string]$Name, [string]$Status, [string]$Version, [string]$Source, [string]$Reason) {
-    $custom.Add([ordered]@{ name = $Name; status = $Status; version = $Version; source = $Source; reason = $Reason })
-    Write-Log ('個別製品: {0} -> {1} {2} ({3})' -f $Name, $Status, $Version, $Source)
-}
-function Get-Match([string]$Text, [string]$Regex) {
-    if (-not $Regex) { return '' }
-    $m = [regex]::Match($Text, $Regex)
-    if ($m.Success) { return $m.Value } else { return '' }
-}
-foreach ($product in $CustomProducts) {
-    $name = $product.Name; $target = $product.Target
-    try {
-        switch ($product.Type) {
-            'fileversion' {
-                $files = @(Get-Item -Path $target -ErrorAction SilentlyContinue)
-                if ($files.Count -eq 0) { Add-Custom $name 'not_found' '' $target '' }
-                foreach ($file in $files) {
-                    $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($file.FullName)
-                    $version = if ($info.ProductVersion) { $info.ProductVersion } else { $info.FileVersion }
-                    Add-Custom $name 'found' ([string]$version) $file.FullName ''
-                }
-            }
-            'filetext' {
-                $files = @(Get-Item -Path $target -ErrorAction SilentlyContinue)
-                if ($files.Count -eq 0) { Add-Custom $name 'not_found' '' $target '' }
-                foreach ($file in $files) {
-                    $text = Read-SharedText $file.FullName
-                    Add-Custom $name 'found' (Get-Match $text $product.Regex) $file.FullName ''
-                }
-            }
-            'cmd' {
-                $command = ($target -split '\s+')[0].Trim('"')
-                if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
-                    Add-Custom $name 'not_found' '' $target ''
-                } else {
-                    # 標準エラーの行は ErrorRecord になり、そのまま文字列にすると例外の表示が混ざるので元の文字列を取り出す
-                    $output = (& cmd.exe /c $target 2>&1 | ForEach-Object {
-                        if ($_ -is [System.Management.Automation.ErrorRecord]) {
-                            if ($null -ne $_.TargetObject) { "$($_.TargetObject)" } else { $_.Exception.Message }
-                        } else { "$_" }
-                    }) -join "`n"
-                    Add-Custom $name 'found' (Get-Match $output $product.Regex) $target ''
-                }
-            }
-            'exists' {
-                $files = @(Get-Item -Path $target -ErrorAction SilentlyContinue)
-                if ($files.Count -eq 0) { Add-Custom $name 'not_found' '' $target '' }
-                else { Add-Custom $name 'found' '' $files[0].FullName '' }
-            }
-            'find' {
-                $hit = $null
-                foreach ($root in $ScanRoots) {
-                    $hit = Get-ChildItem -LiteralPath $root -Filter $target -Recurse -Depth $FindDepth -Force `
-                        -ErrorAction SilentlyContinue | Select-Object -First 1
-                    if ($hit) { break }
-                }
-                if ($hit) { Add-Custom $name 'found' '' $hit.FullName '' }
-                else { Add-Custom $name 'not_found' '' ('名前検索: {0}' -f $target) '' }
-            }
-            default { Add-Custom $name 'error' '' $target ('種類 {0} は使えません' -f $product.Type) }
-        }
-    } catch {
-        Add-Custom $name 'error' '' $target $_.Exception.Message
-    }
-}
-Set-Section 'custom_products' $custom
 Set-Section 'unreadable' $unreadable
 
 # ---- 書き出し -----------------------------------------------------------------

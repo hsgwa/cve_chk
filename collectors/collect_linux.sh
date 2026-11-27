@@ -9,14 +9,14 @@
 #
 # 実行:   sudo bash collect_linux.sh
 # 出力:   ./out/<ホスト名>/cdx_syft.json   syft が作る CycloneDX SBOM
-#         ./out/<ホスト名>/os_info.json    OS 情報・個別製品の版・収集の成否
+#         ./out/<ホスト名>/os_info.json    OS 情報・収集の成否
 #         ./out/<ホスト名>/collect.log     実行ログ
 # 回収:   out/<ホスト名>/ フォルダごと管理 PC の <inventory-dir>/ 配下へコピー
 #
 # 対象マシンに残すもの: このスクリプトが書き込むのは、スクリプトを置いたフォルダの中だけ
 #   （out/ と、実行中だけ使う .work/。syft の一時ファイルやキャッシュも .work/ の中に置き、終わると消す）。
 #   回収が終わったら、このフォルダごと消せば元の状態に戻る（例: sudo rm -rf /opt/vuln-collect）。
-#   OS が記録するもの（sudo のログ、シェルの履歴など）は残る。個別製品の cmd で書いたコマンドが書き込むものは対象外。
+#   OS が記録するもの（sudo のログ、シェルの履歴など）は残る。
 #
 # 終了コード: 0 = 成功、1 = 出力先を作れない、3 = syft が失敗（os_info.json は出る）、4 = 空き容量が足りない
 #
@@ -35,31 +35,6 @@
 #   SYFT_TIMEOUT_SEC syft の打ち切り時間（秒。既定 10800 = 3 時間）。打ち切ると syft の失敗として記録する
 # =============================================================================
 set -u
-
-# ---- 個別製品の版取得 --------------------------------------------------------
-# syft では検出できない製品（インストーラで任意の場所に置く商用ソフト）をここに書く。
-# 書式: "製品名|種類|対象|版を抜き出す正規表現"
-#   cmd    対象のコマンドを実行し、出力から正規表現で版を抜き出す
-#   file   対象のファイル（ワイルドカード可）の中身から正規表現で版を抜き出す
-#   exists 対象のパス（ワイルドカード可）があれば「存在する（版不明）」とする
-#   proc   対象の名前（空白区切り）のプロセスが動いていれば「存在する（版不明）」とする
-#   find   対象の名前（大文字小文字無視、ワイルドカード可）のファイル/フォルダを探し、
-#          あれば「存在する（版不明）」とする
-# 版不明で見つかった製品は、管理 PC 側で「影響あり（比較不能）」と判定される。
-# ★ HULFT / DataMagic の「版が分かるコマンドやファイル」は環境ごとに異なるため、
-#    実機で確認して cmd か file の行を追加すること（下はコメントの記入例）。
-CUSTOM_PRODUCTS=(
-  "HULFT|proc|hulsndd hulrcvd hulobsd|"
-  "HULFT|exists|${HULEXEP:-/nonexistent}|"
-  "HULFT|find|*hulft*|"
-  "DataMagic|find|*datamagic*|"
-  # "HULFT|cmd|/opt/hulft/bin/<版を表示するコマンド>|[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.]*"
-  # "DataMagic|file|/opt/datamagic/<版が書かれたファイル>|[0-9]+\.[0-9]+\.[0-9]+"
-)
-# find で探す場所と深さ
-FIND_ROOTS="${FIND_ROOTS:-/opt /usr/local /home /app /apps /data /var/opt /srv}"
-FIND_MAXDEPTH=4
-# -----------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOST="$(hostname 2>/dev/null || echo unknown)"
@@ -118,11 +93,6 @@ SYFT_ENV=(env HOME="$RUN_WORK/home" TMPDIR="$RUN_WORK/tmp" XDG_CACHE_HOME="$RUN_
 json_escape() {
   # JSON 文字列として安全な形にする（制御文字は空白に置き換える）
   printf '%s' "$1" | tr '\000-\037' ' ' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
-}
-
-run_limited() {
-  # timeout コマンドがあれば 30 秒で打ち切る
-  if command -v timeout >/dev/null 2>&1; then timeout 30 "$@"; else "$@"; fi
 }
 
 log "収集開始: host=$HOST scan_root=$SCAN_ROOT out=$OUT_DIR"
@@ -253,78 +223,6 @@ if [ -n "$SYFT_BIN" ]; then
 fi
 [ "$SYFT_STATUS" != "ok" ] && log "エラー: $SYFT_REASON"
 
-# ---- 個別製品 ----------------------------------------------------------------
-CUSTOM_JSON=""
-add_custom() {  # name status version source reason
-  local entry
-  entry="{\"name\":\"$(json_escape "$1")\",\"status\":\"$2\",\"version\":\"$(json_escape "$3")\",\"source\":\"$(json_escape "$4")\",\"reason\":\"$(json_escape "$5")\"}"
-  CUSTOM_JSON="${CUSTOM_JSON:+$CUSTOM_JSON,}$entry"
-  log "個別製品: $1 -> $2 ${3:+version=$3 }${4:+($4)}"
-}
-
-extract() {  # text regex
-  if [ -z "$2" ]; then echo ""; else printf '%s' "$1" | grep -oE -- "$2" 2>/dev/null | head -n 1; fi
-}
-
-for spec in "${CUSTOM_PRODUCTS[@]}"; do
-  IFS='|' read -r p_name p_type p_target p_regex <<< "$spec"
-  case "$p_type" in
-    cmd)
-      p_bin="${p_target%% *}"
-      if ! command -v "$p_bin" >/dev/null 2>&1 && [ ! -x "$p_bin" ]; then
-        add_custom "$p_name" not_found "" "$p_target" ""
-      else
-        p_out="$(run_limited sh -c "$p_target" 2>&1)"; p_rc=$?
-        p_ver="$(extract "$p_out" "$p_regex")"
-        if [ -n "$p_ver" ] || [ "$p_rc" -eq 0 ]; then
-          add_custom "$p_name" found "$p_ver" "$p_target" ""
-        else
-          add_custom "$p_name" error "" "$p_target" "コマンドが終了コード $p_rc で失敗"
-        fi
-      fi ;;
-    file)
-      p_found=0
-      for p_file in $p_target; do
-        [ -e "$p_file" ] || continue
-        p_found=1
-        if [ -r "$p_file" ]; then
-          add_custom "$p_name" found "$(extract "$(head -c 65536 "$p_file" 2>/dev/null | tr -d '\000')" "$p_regex")" "$p_file" ""
-        else
-          add_custom "$p_name" error "" "$p_file" "ファイルを読めません（権限不足）"
-        fi
-      done
-      [ "$p_found" -eq 0 ] && add_custom "$p_name" not_found "" "$p_target" "" ;;
-    exists)
-      p_found=0
-      for p_file in $p_target; do
-        [ -e "$p_file" ] || continue
-        p_found=1; add_custom "$p_name" found "" "$p_file" ""
-      done
-      [ "$p_found" -eq 0 ] && add_custom "$p_name" not_found "" "$p_target" "" ;;
-    proc)
-      p_found=0
-      for p_proc in $p_target; do
-        p_pid="$(ps -eo pid=,comm= 2>/dev/null | awk -v n="$p_proc" '$2 == n {print $1; exit}')"
-        [ -n "$p_pid" ] || continue
-        p_found=1
-        p_exe="$(readlink "/proc/$p_pid/exe" 2>/dev/null || echo "$p_proc")"
-        add_custom "$p_name" found "" "実行中: $p_exe" ""
-      done
-      [ "$p_found" -eq 0 ] && add_custom "$p_name" not_found "" "プロセス: $p_target" "" ;;
-    find)
-      p_hit=""
-      for p_root in $FIND_ROOTS; do
-        [ -d "$p_root" ] || continue
-        p_hit="$(find "$p_root" -maxdepth "$FIND_MAXDEPTH" -iname "$p_target" -print 2>/dev/null | head -n 1)"
-        [ -n "$p_hit" ] && break
-      done
-      if [ -n "$p_hit" ]; then add_custom "$p_name" found "" "$p_hit" ""
-      else add_custom "$p_name" not_found "" "名前検索: $p_target" ""; fi ;;
-    *)
-      add_custom "$p_name" error "" "$p_target" "種類 $p_type は使えません" ;;
-  esac
-done
-
 # ---- 読めなかったフォルダ（root 以外で実行した場合） ---------------------------
 UNREADABLE_JSON=""
 if [ "$(id -u)" -ne 0 ]; then
@@ -366,7 +264,6 @@ cat > "$OUT_DIR/os_info.json" <<JSON
     "reason": "$(json_escape "$SYFT_REASON")"
   },
   "sections": {
-    "custom_products": {"status": "ok", "items": [$CUSTOM_JSON]},
     "unreadable": {"status": "ok", "items": [$UNREADABLE_JSON]}
   },
   "completed": true

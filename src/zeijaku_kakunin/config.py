@@ -8,15 +8,7 @@ from typing import Any
 import yaml
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "rank_matrix": [
-        {"min_cvss": 9.0, "internet": {"rank": "Rank-S", "days": 3}, "internal": {"rank": "Rank-A", "days": 14}},
-        {"min_cvss": 7.0, "internet": {"rank": "Rank-A", "days": 14}, "internal": {"rank": "Rank-B", "days": 30}},
-        {"min_cvss": 4.0, "internet": {"rank": "Rank-B", "days": 30}, "internal": {"rank": "Rank-C", "days": 90}},
-    ],
-    "default_rank": {"rank": "Rank-C", "days": 90},
-    "rank_order": ["Rank-S", "Rank-A", "Rank-B", "Rank-C"],
     "cvss_source_priority": ["nvd"],
-    "aliases": {},
     "stale_days": 90,
     "xlsx_max_rows": 100000,
     "scanner": "osv",
@@ -26,33 +18,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_age_days": 1,
         "full_refresh_days": 7,
         "max_delta_records": 3000,
-        "score_sources": ["Debian"],
+        "score_sources": [],           # CVSS を引くために一緒に取るデータ（レポートには CVSS を出さないので既定は無し）
         "amazon_mirrors": {},
         "amazon_extras": "all",
     },
     "trivy": {"path": "", "timeout_sec": 600, "extra_args": []},
     "msrc": {"enabled": True, "timeout_sec": 60, "eol_builds": []},
-    "advisory_input": {
-        "sheet": "",
-        "header_row": 1,
-        "fill_merged": True,
-        "columns": {
-            "advisory_id": ["advisory_id", "通達番号", "通達ID", "社内通達ID", "管理番号", "No", "No."],
-            "cve_id": ["cve_id", "CVE番号", "CVE", "CVE-ID", "CVE_ID"],
-            "product_name": ["product_name", "製品名", "対象製品", "製品・パッケージ名", "ソフトウェア名"],
-            "affected_version": ["affected_version", "影響バージョン", "対象バージョン", "影響を受けるバージョン"],
-            "published_date": ["published_date", "公表日", "通達日", "公開日"],
-            "company_rank": ["company_rank", "社内ランク", "ランク"],
-            "deadline_days": ["deadline_days", "対応期限(日)", "対応期限（日）", "対応期限日数", "期限日数"],
-            "note": ["note", "備考"],
-        },
-    },
 }
 
 
 def _merge(base: dict, override: dict) -> dict:
     for key, value in override.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict) and key not in ("aliases", "amazon_mirrors"):
+        if isinstance(value, dict) and isinstance(base.get(key), dict) and key != "amazon_mirrors":
             _merge(base[key], value)
         elif value is not None:
             base[key] = value

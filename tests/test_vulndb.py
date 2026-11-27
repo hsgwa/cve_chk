@@ -166,10 +166,10 @@ def test_os_package_queries():
 def test_needed_sources(examples, config):
     from zeijaku_kakunin.inventory import load_inventories
     from zeijaku_kakunin.sbom_builder import assign_purls
-    envs = load_inventories(examples / "inventory", {})
+    envs = load_inventories(examples / "inventory")
     assign_purls(envs)
     sources, unsupported = needed_sources(envs, config)
-    assert sources == ["Amazon Linux:2", "Maven", "PyPI", "Ubuntu", "Debian"]   # Debian は CVSS の点数用
+    assert sources == ["Amazon Linux:2", "Maven", "PyPI", "Ubuntu"]   # CVSS を出さないので、点数用の Debian は既定では取らない
     assert unsupported == {}
 
 
@@ -329,7 +329,7 @@ def test_db_update_cli(tmp_path, monkeypatch, examples):
     result = runner.invoke(main, ["update", "--db-dir", str(tmp_path / "db2"), "--inventory-dir",
                                   str(examples / "inventory")])
     assert result.exit_code == 1
-    assert "Amazon Linux:2、Maven、PyPI、Ubuntu、Debian" in result.output
+    assert "Amazon Linux:2、Maven、PyPI、Ubuntu" in result.output
     assert any("/Maven/all.zip" in url for url in requested)
 
 

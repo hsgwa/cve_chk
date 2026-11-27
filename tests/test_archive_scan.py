@@ -104,7 +104,7 @@ def test_dotnet_deps_and_extracted_folder(tmp_path):
 
 
 def test_scan_archive_command_and_matching(tmp_path, examples):
-    """回収物として置き、run でほかの環境と同じように照合される。OS が無いので Windows の KB の通達は対象外。"""
+    """回収物として置き、zk check でほかのサーバーと同じように照合される。"""
     inventory = tmp_path / "inventory"
     zip_path = lambda_zip(tmp_path)
     layer = tmp_path / "layer.zip"
@@ -119,17 +119,16 @@ def test_scan_archive_command_and_matching(tmp_path, examples):
     assert env.os_family == "archive" and env.full_collection and not env.incomplete
     assert env.sections["os"].status == "ok"
 
-    advisory = tmp_path / "advisory.csv"
-    advisory.write_text("通達番号,CVE番号,製品名,影響バージョン\nT-1,CVE-2021-44228,log4j-core,\nT-2,,KB5034441,missing\n",
-                        encoding="utf-8")
+    cve_list = tmp_path / "cve.txt"
+    cve_list.write_text("CVE-2021-44228\nCVE-2024-21338\n", encoding="utf-8")
     out = tmp_path / "out"
-    result = runner.invoke(main, ["check", "--inventory-dir", str(inventory), "--advisory", str(advisory),
+    result = runner.invoke(main, ["check", str(inventory / "lambda-my-function"), "--cve-list", str(cve_list),
                                   "--db-dir", str(examples / "vulndb"), "--cache-dir", str(examples / "cache"),
                                   "--offline", "--base-date", "2026-11-20", "--out-dir", str(out), "--no-xlsx"])
     assert result.exit_code == 0, result.output
-    with (out / "report_detail.csv").open(encoding="utf-8-sig", newline="") as handle:
-        rows = {(r["社内通達ID"], r["影響有無"]) for r in csv.DictReader(handle)}
-    assert rows == {("T-1", "影響あり"), ("T-2", "対象外")}
+    with (out / "report_cve.csv").open(encoding="utf-8-sig", newline="") as handle:
+        rows = {(r["CVE"], r["影響有無"]) for r in csv.DictReader(handle)}
+    assert rows == {("CVE-2021-44228", "影響あり"), ("CVE-2024-21338", "影響なし")}   # OS が無いので Windows OS の CVE は影響なし
 
     # --env を付けなければ、ファイルごとに別の環境になる
     other = tmp_path / "inv2"

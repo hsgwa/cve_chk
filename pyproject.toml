@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zeijaku-kakunin"
-version = "0.9.2"
+version = "1.0.0"
 description = "脆弱確認（zk）: オフライン環境のソフトの一覧と会社公表の脆弱性リストを突き合わせる CLI"
 requires-python = ">=3.10"
 license = "MIT-0"
@@ -22,8 +22,6 @@ dev = ["pytest>=7"]
 [project.scripts]
 zk = "zeijaku_kakunin.cli:main"
 zeijaku-kakunin = "zeijaku_kakunin.cli:main"
-# 旧名（0.7.0 まで）。しばらく残す
-vuln-triage = "zeijaku_kakunin.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -8,7 +8,6 @@
 """
 from __future__ import annotations
 
-import csv
 import json
 import re
 from pathlib import Path, PureWindowsPath
@@ -16,7 +15,6 @@ from typing import Any
 
 from .purl import parse_purl
 from .models import (
-    KIND_CUSTOM,
     KIND_EXECUTABLE,
     KIND_MAVEN,
     KIND_NPM,
@@ -27,7 +25,6 @@ from .models import (
     KIND_SOFTWARE,
     Component,
     EnvInventory,
-    FailedProbe,
     SectionStatus,
 )
 
@@ -259,37 +256,11 @@ def _section(data: dict, name: str, env: EnvInventory) -> list:
     return items
 
 
-def _load_custom_products(data: dict, env: EnvInventory, source: str) -> None:
-    by_name: dict[str, list[dict]] = {}
-    for item in _section(data, "custom_products", env):
-        if isinstance(item, dict) and item.get("name"):
-            by_name.setdefault(str(item["name"]), []).append(item)
-    for name, items in by_name.items():
-        found = [i for i in items if i.get("status") == "found"]
-        errors = [i for i in items if i.get("status") == "error"]
-        if found:
-            # 版が取れた結果を優先し、同じ製品の「存在だけ分かった」結果は捨てる
-            with_version = [i for i in found if i.get("version")]
-            seen = set()
-            for item in with_version or found[:1]:
-                key = (item.get("version"), item.get("source"))
-                if key in seen:
-                    continue
-                seen.add(key)
-                env.components.append(Component(
-                    name=name, version=str(item.get("version") or ""), kind=KIND_CUSTOM,
-                    path=str(item.get("source") or ""), source=f"{source}:custom_products",
-                ))
-        elif errors:
-            env.failed_probes.append(FailedProbe(name=name, reason=str(errors[0].get("reason") or "")))
-
-
 def _load_common(data: dict, env: EnvInventory, source: str) -> None:
     env.collected_at = str(data.get("collected_at") or env.collected_at)
     if data.get("completed") is not True:
         env.incomplete = True
         env.warnings.append(f"{source}: 収集が完了していません（途中で中断された可能性）")
-    _load_custom_products(data, env, source)
     for item in _section(data, "unreadable", env):
         path = item.get("path") if isinstance(item, dict) else item
         if path:
@@ -370,11 +341,6 @@ def load_osinfo(data: dict, env: EnvInventory, source: str) -> None:
     elif syft.get("checksum") == "unverified":
         env.warnings.append(f"{source}: 回収に使った syft のチェックサムを確かめていません"
                             "（syft_<版>_checksums.txt を一緒に持ち込むと確かめます）")
-    if env.emr_release:
-        env.components.append(Component(
-            name="amazon-emr", version=env.emr_release.removeprefix("emr-"), kind=KIND_CUSTOM,
-            path="EMR リリースラベル", source=f"{source}:emr_release", extra_names=("emr",),
-        ))
 
 
 _LOADERS = {
@@ -412,44 +378,25 @@ def load_env_dir(path: Path, name: str | None = None) -> EnvInventory:
     return env
 
 
-def load_env_master(path: str | Path | None) -> dict[str, dict[str, str]]:
-    if not path:
-        return {}
-    text = read_text(Path(path))
-    master = {}
-    for row in csv.DictReader(text.splitlines()):
-        name = (row.get("env_name") or "").strip()
-        if not name:
-            continue
-        exposure = (row.get("exposure") or "").strip().lower()
-        master[name] = {
-            "exposure": exposure if exposure in ("internet", "internal") else "internal",
-            "system_name": (row.get("system_name") or "").strip(),
-        }
-    return master
-
-
-def load_inventories(inventory_dir: str | Path, env_master: dict[str, dict[str, str]]) -> list[EnvInventory]:
+def load_inventories(inventory_dir: str | Path) -> list[EnvInventory]:
+    """回収物のフォルダを読む。フォルダの直下に回収ファイルがあれば 1 台、無ければ下のフォルダを 1 台ずつ読む。"""
     root = Path(inventory_dir)
     if not root.is_dir():
-        raise FileNotFoundError(f"インベントリのフォルダがありません: {root}")
-    envs = []
-    for path in sorted(p for p in root.iterdir() if p.is_dir()):
-        env = load_env_dir(path)
-        info = env_master.get(env.name)
-        if info:
-            env.exposure, env.system_name, env.registered = info["exposure"], info["system_name"], True
-        else:
-            env.warnings.append("サーバー一覧（env_master.csv）に無いため internal（社内限定）として扱いました")
-        envs.append(env)
-    # env_master にあるのに回収フォルダが無い環境も、レポートから消さずに「判定不能」として出す
-    # （回収し忘れたホストに気づけるようにする）
-    found = {env.name for env in envs}
-    for name, info in env_master.items():
-        if name in found:
-            continue
-        env = EnvInventory(name=name, exposure=info["exposure"], system_name=info["system_name"], registered=True)
-        env.not_collected = True
-        env.warnings.append(f"env_master に登録済みですが、回収フォルダ（{root / name}）がありません")
-        envs.append(env)
-    return sorted(envs, key=lambda e: e.name)
+        raise FileNotFoundError(f"回収物のフォルダがありません: {root}")
+    if any(root.glob("*.json")):
+        return [load_env_dir(root)]
+    return [load_env_dir(path) for path in sorted(p for p in root.iterdir() if p.is_dir())]
+
+
+def load_server(path: str | Path) -> EnvInventory:
+    """1 台のサーバーの回収物（out/<ホスト名>/ のフォルダ）を読む。"""
+    folder = Path(path)
+    if not folder.is_dir():
+        raise FileNotFoundError(f"回収物のフォルダがありません: {folder}")
+    if not any(folder.glob("*.json")):
+        servers = [p.name for p in sorted(folder.iterdir()) if p.is_dir() and any(p.glob("*.json"))]
+        if servers:
+            raise ValueError(f"{folder} には複数のサーバーがあります（{'、'.join(servers[:5])} など）。"
+                             f"1 台ずつ指定してください（例: {folder / servers[0]}）")
+        raise ValueError(f"回収ファイル（*.json）がありません: {folder}")
+    return load_env_dir(folder)

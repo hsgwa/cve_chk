@@ -165,8 +165,8 @@
 syft scan dir:/ --exclude ./proc --exclude ./sys --exclude ./dev -o cyclonedx-json=container.cdx.json
 
 # 本ツール
-zk update --inventory-dir inventory      # inventory/<環境名>/container.cdx.json
-zk check --inventory-dir inventory --advisory 通達.xlsx --out-dir out   # 新規検出シートに全検出
+zk update --inventory-dir inventory/container      # inventory/container/container.cdx.json
+zk check inventory/container --out-dir out          # 脆弱性の一覧（report_vulns.csv）に全検出
 
 # Trivy（Amazon Linux は OS 名・PURL を amazon に直した SBOM で）
 trivy sbom --format json container.cdx.json > trivy.json

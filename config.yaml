@@ -1,37 +1,15 @@
-# 脆弱確認（zk）の設定。書いていない項目は既定値が使われる。
+# 脆弱確認（zk）の設定。書いていない項目は既定値が使われる。ふだんは変えなくてよい。
 
-# ---- 社内ランクと対応期限 ----------------------------------------------------
-# 会社公表リストにランク・日数が書かれていればそちらが優先される。
-# 書かれていない場合に、CVSS v3 と公開区分（internet / internal）から決める。
-rank_matrix:
-  - {min_cvss: 9.0, internet: {rank: Rank-S, days: 3},  internal: {rank: Rank-A, days: 14}}
-  - {min_cvss: 7.0, internet: {rank: Rank-A, days: 14}, internal: {rank: Rank-B, days: 30}}
-  - {min_cvss: 4.0, internet: {rank: Rank-B, days: 30}, internal: {rank: Rank-C, days: 90}}
-default_rank: {rank: Rank-C, days: 90}      # CVSS 4.0 未満、または CVSS 不明
-rank_order: [Rank-S, Rank-A, Rank-B, Rank-C]  # 厳しい順
-
-# CVSS が複数のソースにある場合に優先するソース。無ければ全ソースの最大値。
-cvss_source_priority: [nvd]
-
-# ---- 製品名の別名 ------------------------------------------------------------
-# 通達の製品名と、回収データ上の名前が違う場合に対応付ける（大文字小文字は無視）。
-# 通達側で「HULFT*」のようにワイルドカード、「re:^HULFT\d」のように正規表現も使える。
-aliases:
-  HULFT: ["HULFT8", "HULFT8 for Windows", "HULFT8 for Linux", "HULFT10"]
-  DataMagic: ["DataMagic Server", "DataMagic for Windows"]
-  log4j-core: ["org.apache.logging.log4j:log4j-core"]
-
-# 回収からこの日数を超えたインベントリは「収集状況」シートで警告する。
+# 回収からこの日数を超えた回収物は「収集状況」シートで警告する。
 stale_days: 90
 
 # Excel の 1 シートに書く行数の上限（Excel の上限は約 104 万行。多いと開くのも遅い）。
-# 超えた分は Excel には書かず、CSV にだけ全件を出す（ランク・期限の順で先頭から書く）。
+# 超えた分は Excel には書かず、CSV にだけ全件を出す。
 xlsx_max_rows: 100000
 
-# ---- CVE の照合方法 -----------------------------------------------------------
+# ---- 照合に使うもの -----------------------------------------------------------
 # osv   = 手元の脆弱性データ（OSV.dev と Amazon Linux の公式情報。exe 不要。既定）
 # trivy = Trivy（trivy.exe が必要）
-# none  = CVE の照合をしない
 scanner: osv
 
 # ---- 手元の脆弱性データ（zk update で取得） ------------------------
@@ -40,8 +18,6 @@ vulndb:
   max_age_days: 1         # 最後の更新からこの日数を超えたデータで実行すると警告する（照合の前に update する前提）
   full_refresh_days: 7    # 普段は差分だけ取得し、この日数ごとに全件を取り直す
   max_delta_records: 3000 # 差分がこの件数を超えたら全件を取り直す
-  # Amazon Linux の公式情報には CVSS が無いので、点数を引くために一緒に取るデータ
-  score_sources: [Debian]
   # Amazon Linux 2 の extras（kernel-5.10 など）のうち取得するトピック。all（既定・推奨）、一覧、[]（取らない）
   amazon_extras: all
   # Amazon Linux の公式リポジトリ（ミラー一覧）。近いリージョンに変えてもよい
@@ -55,24 +31,9 @@ trivy:
   timeout_sec: 600
   extra_args: []      # 例: ["--skip-db-update"]
 
-# ---- Windows OS の脆弱性（Microsoft の公開データで判定） ----------------------
+# ---- Windows OS の脆弱性（Microsoft の公開データで判定。CVE の一覧を渡したときだけ） --------
 msrc:
   enabled: true
   timeout_sec: 60
-  # サポートが終了した OS のビルド番号。該当する環境は「判定不能（要確認）」になる。
+  # サポートが終了した OS のビルド番号。該当するサーバーは「判定不能（要確認）」になる。
   eol_builds: [9600, 14393]
-
-# ---- 会社公表リスト（Excel / CSV）の読み方 ------------------------------------
-advisory_input:
-  sheet: ""           # 空なら先頭のシート
-  header_row: 1       # 見出しのある行
-  fill_merged: true   # 結合セルの値を各行に引き継ぐ（false にすると結合の 2 行目以降は空。警告を出す）
-  columns:            # ツール内の項目名: 会社の見出し（候補を複数書ける）
-    advisory_id:      ["通達番号", "通達ID", "管理番号", "advisory_id"]
-    cve_id:           ["CVE番号", "CVE", "cve_id"]
-    product_name:     ["製品名", "対象製品", "product_name"]
-    affected_version: ["影響バージョン", "対象バージョン", "affected_version"]
-    published_date:   ["公表日", "通達日", "published_date"]
-    company_rank:     ["社内ランク", "company_rank"]
-    deadline_days:    ["対応期限(日)", "deadline_days"]
-    note:             ["備考", "note"]

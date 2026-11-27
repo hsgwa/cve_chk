@@ -47,7 +47,6 @@ zk update --inventory-dir D:\vuln\inventory
 | Maven / PyPI / npm / NuGet / Go / Rust / Ruby など | OSV.dev | Maven 10 MB、PyPI 37 MB、npm 212 MB など |
 | Amazon Linux 2 / 2023 | 公式リポジトリの updateinfo | 各 2〜3 MB |
 | Ubuntu / Debian / RHEL / Rocky / AlmaLinux | OSV.dev | Ubuntu 784 MB、Debian 80 MB、Red Hat 28 MB |
-| CVSS（Amazon Linux 用） | OSV.dev の Debian データ | 80 MB |
 
 接続先（HTTPS。Amazon Linux 2 は HTTP）: `osv-vulnerabilities.storage.googleapis.com`、`amazonlinux.default.amazonaws.com`、`cdn.amazonlinux.com`、`al2023-repos-*.s3.dualstack.*.amazonaws.com`、`api.msrc.microsoft.com`（Windows OS の判定）。プロキシは `HTTPS_PROXY` / `HTTP_PROXY` で指定します。送るのはダウンロードの要求だけです。
 

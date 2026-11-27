@@ -9,16 +9,15 @@ from pathlib import Path
 import click
 
 from . import __version__
-from .advisory import AdvisoryFormatError, load_advisories
 from .config import load_config
-from .inventory import load_env_master, load_inventories
-from .matching.names import build_matcher
+from .cvelist import CveListError, load_cve_list
+from .inventory import load_inventories, load_server
+from .judge import Judge
 from .maven_lookup import resolve_hashes
 from .msrc import MsrcClient
 from .report.writers import write_reports
 from .sbom_builder import assign_purls, write_sboms
 from .trivy_runner import TrivyNotFoundError, scan_environments
-from .verdict import Judge
 from .vulndb.ecosystems import needed_sources
 from .vulndb.scanner import scan_with_vulndb, stale_sources
 from .vulndb.store import VulnDB, VulnDBError
@@ -57,43 +56,27 @@ def _parse_date(_ctx, _param, value: str | None) -> date | None:
         raise click.BadParameter("YYYY-MM-DD の形式で指定してください") from exc
 
 
-common_inputs = [
-    click.option("--inventory-dir", "--sbom-dir", "inventory_dir", required=True,
-                 type=click.Path(exists=True, file_okay=False), help="回収ファイルのフォルダ（<環境名>/ のサブフォルダ構成）"),
-    click.option("--env-master", type=click.Path(exists=True, dir_okay=False), help="サーバー一覧（env_master.csv）"),
-    click.option("--config", "config_path", type=click.Path(exists=True, dir_okay=False),
-                 help="設定ファイル（省略時はカレントの config.yaml）"),
-]
-
-
-def with_options(options):
-    def decorator(func):
-        for option in reversed(options):
-            func = option(func)
-        return func
-    return decorator
-
-
 @click.group()
 @click.version_option(__version__, prog_name="脆弱確認（zk）")
 def main() -> None:
-    """脆弱確認（zk）: オフライン環境から回収したソフトの一覧を、会社公表の脆弱性リストと突き合わせます。
+    """脆弱確認（zk）: サーバーから回収したソフトの一覧を、脆弱性の情報と突き合わせます。
 
     \b
     はじめて使うとき:
-      zk demo          サンプルでレポートの見本を作る
-      zk init D:\\vuln  作業フォルダを作る（中の「はじめに.txt」を読む）
+      zk demo                 サンプルでレポートの見本を作る
+      zk init D:\\vuln         作業フォルダを作る（中の「はじめに.txt」を読む）
 
     \b
     ふだんの流れ:
-      zk update   脆弱性データを最新にする
-      zk check    照合してレポートを出す
+      zk update --inventory-dir D:\\vuln\\inventory     脆弱性データを最新にする
+      zk check D:\\vuln\\inventory\\web01               1 台を調べてレポートを出す
+      zk check D:\\vuln\\inventory\\web01 --cve-list 通達.xlsx   一覧の CVE ごとに影響の有無も出す
     """
 
 
 @main.command("update")
 @click.option("--inventory-dir", "--sbom-dir", "inventory_dir", type=click.Path(exists=True, file_okay=False),
-              help="回収ファイルのフォルダ。ここに新しく出てきたエコシステムのデータも取得する")
+              help="回収物のフォルダ（1 台ぶん、または複数台を並べたフォルダ）。出てきたソフトの種類のデータを取得する")
 @click.option("--ecosystem", "ecosystems", multiple=True,
               help="追加で取得するデータ（例: Maven、PyPI、Ubuntu、\"Amazon Linux:2023\"）。複数指定可")
 @click.option("--import", "imports", multiple=True, metavar="名前=ZIP",
@@ -124,7 +107,7 @@ def db_update(inventory_dir, ecosystems, imports, force_full, db_dir, config_pat
         if name not in targets:
             targets.append(name)
     if inventory_dir:
-        envs = load_inventories(inventory_dir, {})
+        envs = load_inventories(inventory_dir)
         assign_purls(envs)
         found, unsupported = needed_sources(envs, config)
         added = [name for name in found if name not in targets]
@@ -166,98 +149,89 @@ def db_update(inventory_dir, ecosystems, imports, force_full, db_dir, config_pat
 
 
 @main.command("check")
-@with_options(common_inputs)
-@click.option("--advisory", required=True, type=click.Path(exists=True, dir_okay=False),
-              help="会社公表の脆弱性リスト（.xlsx / .xlsm / .csv）")
-@click.option("--out-dir", default="out", show_default=True, help="レポートの出力先")
-@click.option("--only-advisory", is_flag=True, help="会社公表リストにある脆弱性だけを出力する（新規検出を出さない）")
-@click.option("--base-date", callback=_parse_date, help="実行日として扱う日付 YYYY-MM-DD（省略時は今日）")
-@click.option("--scanner", type=click.Choice(["osv", "trivy", "none"]),
-              help="CVE の照合方法。osv = 手元の脆弱性データ（既定）、trivy = Trivy、none = 照合しない")
+@click.argument("server", type=click.Path(exists=True, file_okay=False))
+@click.option("--cve-list", type=click.Path(exists=True, dir_okay=False),
+              help="調べたい CVE の一覧（Excel / CSV / テキスト。CVE 番号がどこかに書いてあればよい）")
+@click.option("--out-dir", help="レポートの出力先（省略時は out\\<サーバー名>）")
+@click.option("--previous", type=click.Path(exists=True, file_okay=False),
+              help="前回の出力フォルダ。比べて「新たに見つかった」「解消」を出す")
 @click.option("--db-dir", help="脆弱性データの置き場所（省略時は config.yaml の vulndb.dir）")
-@click.option("--skip-trivy", is_flag=True, hidden=True, help="--scanner none と同じ（旧オプション）")
+@click.option("--cache-dir", default="cache", show_default=True, help="外部データのキャッシュ置き場")
+@click.option("--config", "config_path", type=click.Path(exists=True, dir_okay=False),
+              help="設定ファイル（省略時はカレントの config.yaml）")
+@click.option("--offline", is_flag=True, help="Microsoft の公開データをキャッシュからのみ使う")
+@click.option("--no-msrc", is_flag=True, help="Windows OS の判定を行わない")
+@click.option("--resolve-hashes", "resolve", is_flag=True, help="名前の分からない jar を SHA-1 で Maven Central に照会する")
+@click.option("--no-xlsx", is_flag=True, help="Excel を出力しない（CSV のみ）")
+@click.option("--base-date", callback=_parse_date, help="実行日として扱う日付 YYYY-MM-DD（省略時は今日）")
+@click.option("--scanner", type=click.Choice(["osv", "trivy"]),
+              help="照合に使うもの。osv = 手元の脆弱性データ（既定）、trivy = Trivy")
 @click.option("--trivy-results-dir", type=click.Path(exists=True, file_okay=False),
               help="保存済みの Trivy 結果を使う（--scanner trivy の場合）")
 @click.option("--save-trivy-json", type=click.Path(file_okay=False), help="Trivy の生の結果を保存するフォルダ")
-@click.option("--work-dir", default="work", show_default=True, help="生成した SBOM の置き場所（Trivy 用）")
-@click.option("--cache-dir", default="cache", show_default=True, help="外部データのキャッシュ置き場")
-@click.option("--offline", is_flag=True, help="Microsoft の公開データをキャッシュからのみ使う")
-@click.option("--no-msrc", is_flag=True, help="Windows OS のビルド番号による判定を行わない")
-@click.option("--resolve-hashes", "resolve", is_flag=True, help="名前の分からない jar を SHA-1 で Maven Central に照会する")
-@click.option("--no-xlsx", is_flag=True, help="Excel を出力しない（CSV のみ）")
-@click.option("--previous", type=click.Path(exists=True, file_okay=False),
-              help="前回の出力フォルダ。比べて「新たに影響あり」「解消」を出す（前回との差分）")
 @click.option("--sample-data", is_flag=True, hidden=True, help="同梱のサンプル（zk demo）。データの古さを警告しない")
-def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory, base_date, scanner, db_dir,
-        skip_trivy, trivy_results_dir, save_trivy_json, work_dir, cache_dir, offline, no_msrc, resolve, no_xlsx,
-        previous, sample_data=False):
-    """突き合わせを実行してレポートを出力します。"""
+def check(server, cve_list, out_dir, previous, db_dir, cache_dir, config_path, offline, no_msrc, resolve, no_xlsx,
+          base_date, scanner, trivy_results_dir, save_trivy_json, sample_data=False):
+    """1 台のサーバーを調べてレポートを出します。
+
+    SERVER は回収物のフォルダ（対象マシンの out\\<ホスト名>\\ をそのまま置いたもの）です。
+    """
     db_info = None
     try:
         config = load_config(config_path or _default_config())
-        if skip_trivy:
-            scanner = "none"
-        if scanner is None:
-            scanner = "trivy" if trivy_results_dir else str(config.get("scanner") or "osv")
+        scanner = scanner or ("trivy" if trivy_results_dir else str(config.get("scanner") or "osv"))
         today = base_date or date.today()
-        envs = load_inventories(inventory_dir, load_env_master(env_master))
-        if not envs:
-            raise click.ClickException(f"環境フォルダがありません: {inventory_dir}")
+        env = load_server(server)
+        out = Path(out_dir) if out_dir else Path("out") / env.name
         previous_rows = None
         if previous:
             from .report.diff import load_previous
 
-            if Path(previous).resolve() == Path(out_dir).resolve():
-                raise ValueError("--previous と --out-dir に同じフォルダは指定できません（前回の結果を上書きしてしまうため）")
+            if Path(previous).resolve() == out.resolve():
+                raise ValueError("--previous と出力先に同じフォルダは指定できません（前回の結果を上書きしてしまうため）")
             previous_rows = load_previous(previous)
-        advisory_warnings: list[str] = []
-        advisories = load_advisories(advisory, config, advisory_warnings)
-        _echo(f"環境 {len(envs)} 件、通達 {len(advisories)} 件を読み込みました")
-        for warning in advisory_warnings:
+        cves, list_warnings = load_cve_list(cve_list) if cve_list else (None, [])
+        _echo(f"サーバー: {env.name}（ソフトウェア {len(env.components)} 件）"
+              + (f"、CVE の一覧 {len(cves)} 件" if cves is not None else ""))
+        for warning in list_warnings:
             _echo(f"注意: {warning}")
 
         if resolve:
-            count, error = resolve_hashes(envs, Path(cache_dir) / "maven_sha1.json")
+            count, error = resolve_hashes([env], Path(cache_dir) / "maven_sha1.json")
             _echo(f"SHA-1 で特定できた jar: {count} 件" + (f"（{error}）" if error else ""))
 
-        findings = []
-        messages = list(advisory_warnings)
+        messages = list(list_warnings)
         if scanner == "osv":
             db = VulnDB(db_dir or config["vulndb"]["dir"], config)
             if not db.exists():
                 raise VulnDBError(
                     f"脆弱性データがありません（{db.dir}）。先に次を実行してください:\n"
-                    f"  zk update --inventory-dir {inventory_dir}")
-            assign_purls(envs)
+                    f"  zk update --inventory-dir {server}")
+            assign_purls([env])
             db_info = db.sources()
             stale = [] if sample_data else stale_sources(db, config)
             if stale:
-                messages.append("脆弱性データの更新が古くなっています: " + "、".join(stale)
-                                + "（zk update で更新）")
-            findings = scan_with_vulndb(envs, db, config, log=_echo)
+                messages.append("脆弱性データの更新が古くなっています: " + "、".join(stale) + "（zk update で更新）")
+            findings = scan_with_vulndb([env], db, config, log=_echo)
             db.close()
-            missing = sorted({name for env in envs for name in env.missing_db})
-            if missing:
-                messages.append("脆弱性データが無いため照合していないもの: " + "、".join(missing)
-                                + "（zk update --inventory-dir で取得）")
-        elif scanner == "trivy":
-            write_sboms(envs, Path(work_dir) / "sbom")
-            findings = scan_environments(envs, config, trivy_results_dir, save_trivy_json, log=_echo)
+            if env.missing_db:
+                messages.append("脆弱性データが無いため照合していないもの: " + "、".join(sorted(env.missing_db))
+                                + f"（zk update --inventory-dir {server} で取得）")
         else:
-            _echo("CVE の照合を行わずに実行します（CVE 番号だけの通達は「判定不能」になります）")
-            messages.append("CVE の照合（脆弱性データベース）を行わずに実行しました")
+            write_sboms([env], out / "sbom")
+            findings = scan_environments([env], config, trivy_results_dir, save_trivy_json, log=_echo)
 
         msrc = None
-        if not no_msrc and (config.get("msrc") or {}).get("enabled", True):
+        if cves and not no_msrc and (config.get("msrc") or {}).get("enabled", True):
             msrc = MsrcClient(Path(cache_dir) / "msrc", config, offline=offline)
-        result = Judge(envs, findings, config, today, msrc).run(advisories, only_advisory=only_advisory)
+        result = Judge(env, findings, config, msrc).run(cves)
         result.messages.extend(messages)
-        written, lines = write_reports(out_dir, advisories, envs, result, config, today, xlsx=not no_xlsx,
+        written, lines = write_reports(out, env, result, cves, config, today, xlsx=not no_xlsx,
                                        db_info=db_info, previous=previous_rows)
     except TrivyNotFoundError as exc:
         _echo(f"エラー: {exc}")
         sys.exit(2)
-    except (AdvisoryFormatError, FileNotFoundError, ValueError, VulnDBError) as exc:
+    except (CveListError, FileNotFoundError, ValueError, VulnDBError) as exc:
         _echo(f"エラー: {exc}")
         sys.exit(2)
 
@@ -279,7 +253,7 @@ def scan_archive_command(paths, inventory_dir, env_name):
     """zip / jar / war / ear / whl（と展開したフォルダ）の中のライブラリを調べ、回収物として置きます。
 
     Lambda のデプロイ用 zip やレイヤー、アプリケーションの war や fat jar などを、サーバーで回収せずに調べられます。
-    作った回収物は run（または check_all.ps1）でほかの環境と同じように照合されます。
+    作った回収物は zk check <inventory-dir>\\<環境名> で照合します。
     """
     from .archive_scan import iter_targets, scan
 
@@ -298,12 +272,12 @@ def scan_archive_command(paths, inventory_dir, env_name):
 
 
 @main.command("export-sbom")
-@with_options(common_inputs)
+@click.option("--inventory-dir", required=True, type=click.Path(exists=True, file_okay=False),
+              help="回収物のフォルダ（1 台ぶん、または複数台を並べたフォルダ）")
 @click.option("--out-dir", default="work/sbom", show_default=True, help="SBOM の出力先")
-def build_sbom_command(inventory_dir, env_master, config_path, out_dir):
-    """Windows の inventory.json から CycloneDX SBOM を作るだけ行います。"""
-    envs = load_inventories(inventory_dir, load_env_master(env_master))
-    written = write_sboms(envs, out_dir)
+def build_sbom_command(inventory_dir, out_dir):
+    """Windows の inventory.json から CycloneDX SBOM を作るだけ行います（Trivy を使う場合）。"""
+    written = write_sboms(load_inventories(inventory_dir), out_dir)
     if not written:
         click.echo("SBOM を作る対象（Java / Python / npm / NuGet）がありませんでした")
     for path in written:
@@ -311,47 +285,36 @@ def build_sbom_command(inventory_dir, env_master, config_path, out_dir):
 
 
 @main.command("preview")
-@with_options(common_inputs)
-@click.option("--advisory", type=click.Path(exists=True, dir_okay=False), help="会社公表の脆弱性リスト")
-def check_inputs(inventory_dir, env_master, config_path, advisory):
-    """入力が正しく読めるかを確認します（判定は行いません）。"""
+@click.argument("server", type=click.Path(exists=True, file_okay=False))
+@click.option("--cve-list", type=click.Path(exists=True, dir_okay=False), help="調べたい CVE の一覧")
+def preview(server, cve_list):
+    """回収物と CVE の一覧が正しく読めるかを確かめます（照合はしません）。"""
     try:
-        config = load_config(config_path or _default_config())
-        envs = load_inventories(inventory_dir, load_env_master(env_master))
-        advisory_warnings: list[str] = []
-        advisories = load_advisories(advisory, config, advisory_warnings) if advisory else []
-    except (AdvisoryFormatError, FileNotFoundError, ValueError) as exc:
+        env = load_server(server)
+        cves, warnings = load_cve_list(cve_list) if cve_list else (None, [])
+    except (CveListError, FileNotFoundError, ValueError) as exc:
         _echo(f"エラー: {exc}")
         sys.exit(2)
-
-    click.echo("==== 環境 ====")
-    for env in envs:
-        click.echo(f"{env.name}: {env.exposure} / OS={env.os_name or env.os_family} {env.os_build} / "
-                   f"コンポーネント {len(env.components)} 件 / KB "
-                   f"{'回収なし' if env.hotfixes is None else str(len(env.hotfixes)) + ' 件'}")
-        for name in env.files:
-            click.echo(f"    {name}")
-        for warning in env.warnings:
+    click.echo(f"==== サーバー: {env.name} ====")
+    click.echo(f"OS: {env.os_name or env.os_family} {env.os_build}".rstrip())
+    click.echo(f"回収日時: {env.collected_at or '不明'}")
+    click.echo(f"ソフトウェア: {len(env.components)} 件"
+               + ("" if env.hotfixes is None else f"、適用済みの更新プログラム（KB） {len(env.hotfixes)} 件"))
+    for name in env.files:
+        click.echo(f"    {name}")
+    for warning in env.warnings:
+        click.echo(f"    注意: {warning}")
+    if cves is not None:
+        click.echo(f"==== CVE の一覧: {len(cves)} 件 ====")
+        click.echo("    " + "、".join(cves[:20]) + (f" ほか {len(cves) - 20} 件" if len(cves) > 20 else ""))
+        for warning in warnings:
             click.echo(f"    注意: {warning}")
-    if advisory:
-        click.echo(f"==== 会社公表リスト（通達 {len(advisories)} 件） ====")
-        for warning in advisory_warnings:
-            click.echo(f"    注意: {warning}")
-    if advisories:
-        click.echo("==== 通達の製品名が回収データのどれに当たるか ====")
-        for item in advisories:
-            if not item.product_name or item.is_kb:
-                continue
-            matcher = build_matcher(item.product_name, config.get("aliases") or {})
-            hits = sorted({f"{c.name} {c.version}".strip() for env in envs for c in env.components if matcher(c)})
-            shown = "、".join(hits[:5]) + (f" ほか {len(hits) - 5} 件" if len(hits) > 5 else "")
-            click.echo(f"{item.advisory_id} [{item.product_name}] -> {shown or '該当なし（表記ゆれなら aliases に追加）'}")
 
 
 def _find_examples() -> Path | None:
     """同梱のサンプル（examples/）を探す。配布物では zk.pyz の隣、リポジトリでは src の 2 つ上。"""
     for folder in Path(__file__).resolve().parents:
-        if (folder / "examples" / "env_master.csv").is_file():
+        if (folder / "examples" / "cve_list.xlsx").is_file():
             return folder / "examples"
     return None
 
@@ -360,34 +323,34 @@ def _find_examples() -> Path | None:
 @click.option("--out-dir", default="demo", show_default=True, help="サンプルのレポートの出力先")
 @click.pass_context
 def demo(ctx, out_dir):
-    """同梱のサンプルで照合して、レポートの見本を作ります（ネット接続は不要）。"""
+    """同梱のサンプル（架空のサーバー 4 台）で照合して、レポートの見本を作ります（ネット接続は不要）。"""
     examples = _find_examples()
     if examples is None:
         raise click.ClickException("サンプル（examples フォルダ）が見つかりません。配布物の zip を展開し直してください")
-    ctx.invoke(run, inventory_dir=str(examples / "inventory"), env_master=str(examples / "env_master.csv"),
-               config_path=None, advisory=str(examples / "advisory_list.xlsx"), out_dir=out_dir,
-               only_advisory=False, base_date=date(2026, 11, 20), scanner="osv", db_dir=str(examples / "vulndb"),
-               skip_trivy=False, trivy_results_dir=None, save_trivy_json=None, work_dir=str(Path(out_dir) / "work"),
-               cache_dir=str(examples / "cache"), offline=True, no_msrc=False, resolve=False, no_xlsx=False,
-               previous=None, sample_data=True)
-    _echo(f"見本のレポート: {Path(out_dir).resolve() / 'report.xlsx'}")
+    made = []
+    for server in sorted(p for p in (examples / "inventory").iterdir() if p.is_dir()):
+        out = Path(out_dir) / server.name
+        ctx.invoke(check, server=str(server), cve_list=str(examples / "cve_list.xlsx"), out_dir=str(out),
+                   previous=None, db_dir=str(examples / "vulndb"), cache_dir=str(examples / "cache"), config_path=None,
+                   offline=True, no_msrc=False, resolve=False, no_xlsx=False, base_date=date(2026, 11, 20),
+                   scanner="osv", trivy_results_dir=None, save_trivy_json=None, sample_data=True)
+        made.append(out.resolve() / "report.xlsx")
+    _echo("見本のレポート:")
+    for path in made:
+        _echo(f"  {path}")
 
 
-_SERVER_LIST_HEADER = "env_name,exposure,system_name\n"
 _INIT_README = """\
 この作業フォルダの使い方（脆弱確認 zk）
 
 1. inventory\\ の下に、対象マシンから持ち出した回収物を、ホストごとのフォルダのまま置く
-     inventory\\web01\\cdx_syft.json、inventory\\web01\\os_info.json など
-2. env_master.csv（サーバー一覧）に、調べる対象マシンを 1 行ずつ書く
-     env_name     inventory\\ の下のフォルダ名（ふつうはホスト名）
-     exposure     internet（インターネットに公開）か internal（社内だけ）
-     system_name  システム名（メモ。空でもよい）
-   例: web01,internet,受発注Web
-3. advisory\\ に、会社が公表した脆弱性の一覧（Excel か CSV）を置く
-4. ツールのフォルダで次を実行する
+     例: inventory\\web01\\cdx_syft.json、inventory\\web01\\os_info.json
+2. 調べたい CVE の一覧（会社の通達の Excel など）があれば cve_list\\ に置く（無くてもよい）
+3. ツールのフォルダで次を実行する（全サーバーを 1 台ずつ調べる）
      powershell -ExecutionPolicy Bypass -File scripts\\check_all.ps1 -BaseDir {base}
-5. reports\\<日付>\\report.xlsx を開く
+   1 台だけなら
+     zk check {base}\\inventory\\web01 --cve-list {base}\\cve_list\\通達.xlsx
+4. reports\\<日付>\\<サーバー名>\\report.xlsx を開く
 
 使い方: https://github.com/hsgwa/cve_chk/blob/main/docs/usage/README.md
 """
@@ -396,42 +359,16 @@ _INIT_README = """\
 @main.command("init")
 @click.argument("folder", type=click.Path(file_okay=False))
 def init_command(folder):
-    """作業フォルダを作ります（回収物・サーバー一覧・会社公表リストの置き場所と、説明のファイル）。"""
+    """作業フォルダを作ります（回収物と CVE の一覧の置き場所、説明のファイル）。"""
     base = Path(folder).resolve()
-    for name in ("inventory", "advisory", "reports", "logs"):
+    for name in ("inventory", "cve_list", "reports", "logs"):
         (base / name).mkdir(parents=True, exist_ok=True)
-    created = []
-    server_list = base / "env_master.csv"
-    if not server_list.exists():
-        server_list.write_text(_SERVER_LIST_HEADER, encoding="utf-8-sig")
-        created.append(server_list.name)
     readme = base / "はじめに.txt"
     if not readme.exists():
         readme.write_text(_INIT_README.format(base=base), encoding="utf-8-sig")
-        created.append(readme.name)
     _echo(f"作業フォルダ: {base}")
-    _echo("作ったもの: inventory\\ advisory\\ reports\\ logs\\ " + " ".join(created))
+    _echo("作ったもの: inventory\\ cve_list\\ reports\\ logs\\ はじめに.txt")
     _echo(f"次にすること: {readme} を読む")
-
-
-# ---- 旧名（0.7.0 まで）の別名。一覧には出さず、使うと新しい名前を案内する ----
-_OLD_NAMES = {"db-update": "update", "run": "check", "check-inputs": "preview",
-              "scan-archive": "scan-file", "build-sbom": "export-sbom"}
-
-
-def _alias(old: str, new: str) -> click.Command:
-    command = main.commands[new]
-
-    def callback(*args, **kwargs):
-        _echo(f"注意: 「{old}」は旧名です。今後は「zk {new}」を使ってください")
-        return command.callback(*args, **kwargs)
-
-    return click.Command(old, params=command.params, callback=callback, hidden=True,
-                         help=f"旧名。zk {new} と同じ")
-
-
-for _old, _new in _OLD_NAMES.items():
-    main.add_command(_alias(_old, _new))
 
 
 if __name__ == "__main__":

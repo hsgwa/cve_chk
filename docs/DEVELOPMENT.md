@@ -3,7 +3,7 @@
 ```
 pip install -e ".[dev]"
 pytest
-python examples/make_advisory_list.py               # サンプルの会社公表リストを作り直す
+python examples/make_cve_list.py                    # サンプルの CVE の一覧を作り直す
 python tools/build_portable.py --out dist           # インストール不要の配布物を作る
 python tools/audit_vulndb.py --db-dir vulndb --inventory-dir inventory   # 実データの監査
 ```

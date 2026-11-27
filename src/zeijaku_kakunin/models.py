@@ -2,20 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
 from pathlib import Path
 
 # 影響有無の値
 AFFECTED = "影響あり"
 AFFECTED_UNCOMPARABLE = "影響あり（比較不能）"
 NOT_AFFECTED = "影響なし"
-NOT_DETECTED = "影響なし（CVE未検出）"
-UNUSED = "未使用"
-NOT_APPLICABLE = "対象外"
+NOT_APPLICABLE = "対象外"        # Windows OS の判定で、この OS の版が CVE の対象に無い（レポートでは影響なしにする）
 UNKNOWN = "判定不能"
-
-AFFECTED_STATUSES = (AFFECTED, AFFECTED_UNCOMPARABLE)
-NOT_AFFECTED_STATUSES = (NOT_AFFECTED, NOT_DETECTED)
 
 # コンポーネントの種類。Trivy に渡せるのは PURL を作れるものだけ。
 KIND_OS_PACKAGE = "os-package"
@@ -25,7 +19,6 @@ KIND_NPM = "npm"
 KIND_NUGET = "nuget"
 KIND_SOFTWARE = "software"      # インストール済みソフト（レジストリ、winget）
 KIND_EXECUTABLE = "executable"  # exe/dll のバージョン情報
-KIND_CUSTOM = "custom"          # 個別製品の版取得
 KIND_OTHER = "other"
 
 
@@ -57,21 +50,10 @@ class SectionStatus:
 
 
 @dataclass
-class FailedProbe:
-    """個別製品の版取得で、エラーになったもの。"""
-
-    name: str
-    reason: str = ""
-
-
-@dataclass
 class EnvInventory:
     """1環境（1ホスト）ぶんの回収結果。"""
 
     name: str
-    exposure: str = "internal"
-    system_name: str = ""
-    registered: bool = False
     os_family: str = "unknown"            # windows / linux / unknown
     os_name: str = ""
     os_id: str = ""                       # ubuntu / amzn / rhel など
@@ -82,7 +64,6 @@ class EnvInventory:
     components: list[Component] = field(default_factory=list)
     hotfixes: set[str] | None = None      # None = KB 情報を回収できていない
     sections: dict[str, SectionStatus] = field(default_factory=dict)
-    failed_probes: list[FailedProbe] = field(default_factory=list)
     sbom_files: list[Path] = field(default_factory=list)   # Trivy に渡す CycloneDX
     scanned_sboms: int = 0                # Trivy が正常に判定できた SBOM の数
     files: list[str] = field(default_factory=list)
@@ -92,7 +73,6 @@ class EnvInventory:
     incomplete: bool = False
     missing_db: dict[str, int] = field(default_factory=dict)   # データベースが無く判定できなかったエコシステムと件数
     full_collection: bool = False         # SBOM か収集スクリプトの inventory.json があるか
-    not_collected: bool = False           # env_master に登録済みだが回収フォルダが無い
 
     @property
     def has_inventory(self) -> bool:
@@ -102,29 +82,6 @@ class EnvInventory:
     def cve_coverage(self) -> bool:
         """脆弱性データベースによる CVE 判定が、少なくとも一部でもできたか。"""
         return self.scanned_sboms > 0 or any(c.checked for c in self.components)
-
-
-@dataclass
-class Advisory:
-    """会社公表リストの1行（1セルに複数 CVE がある場合は CVE ごとに1件）。"""
-
-    advisory_id: str
-    cve_id: str = ""
-    product_name: str = ""
-    affected_version: str = ""
-    published_date: date | None = None
-    company_rank: str = ""
-    deadline_days: int | None = None
-    note: str = ""
-    row: int = 0
-
-    @property
-    def is_kb(self) -> bool:
-        return self.affected_version.strip().lower() == "missing"
-
-    @property
-    def key(self) -> tuple[str, str, str]:
-        return (self.advisory_id, self.cve_id, self.product_name)
 
 
 @dataclass
@@ -162,31 +119,3 @@ class Finding:
 
 
 TrivyFinding = Finding   # 旧名
-
-
-@dataclass
-class Verdict:
-    """通達 × 環境（× パッケージ）の判定結果1行。"""
-
-    status: str
-    env: str = ""
-    exposure: str = ""
-    category: str = ""        # 判定区分
-    cve_id: str = ""
-    advisory_id: str = ""
-    package: str = ""
-    version: str = ""
-    condition: str = ""       # 影響条件 / 修正バージョン
-    path: str = ""
-    cvss: float | None = None
-    rank: str = ""
-    deadline: date | None = None
-    base_date: date | None = None
-    note: str = ""
-    advisory: Advisory | None = None
-    fixed: str = ""           # 修正版（脆弱性データベースの検出の場合）
-    ecosystem: str = ""       # 修正版の比較に使う系統（Ubuntu、Maven、Amazon Linux:2 など）
-
-    @property
-    def affected(self) -> bool:
-        return self.status in AFFECTED_STATUSES

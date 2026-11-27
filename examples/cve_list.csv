@@ -1,0 +1,6 @@
+﻿通達番号,CVE番号,備考
+ADV-001,CVE-2021-44228,Log4Shell（log4j-core）
+ADV-002,CVE-2022-42889,Text4Shell（commons-text）
+ADV-003,CVE-2023-32681,requests
+ADV-004,CVE-2024-21338,Windows OS（ビルド番号で判定）
+ADV-005,CVE-2099-0001,どのサーバーにも無い例

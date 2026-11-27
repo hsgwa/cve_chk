@@ -13,7 +13,7 @@
 - 既定で優先度を下げて実行します（Linux: `nice -n 19`・`ionice -c3`、Windows: 通常以下）。
 - 出力先の空きが 500 MB 未満なら、何も書かずに止めます（終了コード 4）。
 - CI で毎回、実行前とフォルダ削除後を比べて差が無いことを確かめています（`tests/e2e/footprint_*`）。
-- 残るもの: OS の記録（sudo のログ、シェルの履歴、イベントログ）。個別製品の `cmd` で足したコマンドが書くもの（例: `java -version` の `/tmp/hsperfdata_<ユーザー名>`）。
+- 残るもの: OS の記録（sudo のログ、シェルの履歴、イベントログ）。
 - サーバーへの負荷は [OPERATIONS.md](https://github.com/hsgwa/cve_chk/blob/main/docs/OPERATIONS.md) の 2 章にあります。
 
 ## Linux（EC2、EMR の各ノード）
@@ -52,7 +52,7 @@ sudo SYFT_CHECK_FOR_APP_UPDATE=false ./syft scan dir:/ \
 
 - この方法では、syft が `/tmp` やホームフォルダに一時ファイルを残すことがあります。
 - ネットワーク上の領域は自動で除外されません。`findmnt -t nfs,nfs4,cifs,fuse.s3fs,lustre -o TARGET` で確かめて `--exclude` に足します。
-- 取れないもの: 個別製品の版（HULFT など）、EMR のリリースラベル、syft の失敗の記録。
+- 取れないもの: EMR のリリースラベル、syft の失敗の記録。
 
 ## Windows
 
@@ -70,9 +70,9 @@ powershell -ExecutionPolicy Bypass -File C:\vuln-collect\collect_win.ps1 -AllDri
 - その他の引数: `-NormalPriority`（通常の優先度）、`-MinFreeMB`、`-SkipDll`（dll を読まない）。
 - 終了コード: 0 = 成功、4 = 空き容量不足。
 
-## HULFT / DataMagic などの商用ソフト
+## 商用ソフト（HULFT、DataMagic など）
 
-パッケージ管理の外の製品は、両スクリプト冒頭の「個別製品の版取得」の表で扱います。初期状態では名前で探して「存在する（版不明）」と記録するだけなので、判定は「影響あり（比較不能）」になります。版を取るには、版が分かるコマンドかファイルを確かめて表に 1 行足します（記入例はコメントにあります）。Windows でインストーラを使った製品は、レジストリから版が取れます。
+脆弱性の情報に無いので、このツールでは判定できません。製品の告知で人が確かめます。
 
 ## 回収後
 

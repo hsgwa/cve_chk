@@ -1,4 +1,0 @@
-env_name,exposure,system_name
-web-ec2,internet,受発注Web
-batch-emr,internal,分析基盤
-win-app01,internal,ファイル連携

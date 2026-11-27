@@ -123,8 +123,9 @@ def main() -> None:
     (folder / "README.txt").write_text(
         "脆弱確認（zk）" + version() + "\n\n"
         "インストール不要です。このフォルダで次を実行します（PowerShell では .\\zk）。\n"
-        "  zk update --inventory-dir D:\\vuln\\inventory     脆弱性データを取得する\n"
-        "  powershell -ExecutionPolicy Bypass -File scripts\\check_all.ps1 -BaseDir D:\\vuln\n"
+        "  zk demo                       見本のレポートを作る\n"
+        "  zk init D:\\vuln               作業フォルダを作る（中の「はじめに.txt」を読む）\n"
+        "  zk check <回収物のフォルダ>     1 台を調べる\n"
         "要らなくなったら、このフォルダごと消します。\n\n"
         "使い方: https://github.com/hsgwa/cve_chk/blob/main/docs/usage/README.md\n", encoding="utf-8")
 

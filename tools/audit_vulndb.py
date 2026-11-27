@@ -134,7 +134,7 @@ def audit_versions(db: VulnDB, per_ecosystem: int = 3000) -> None:
 
 def audit_scan(dbs: list[VulnDB], inventory_dir: str, config: dict) -> None:
     print("D. 照合結果の不変条件")
-    envs = load_inventories(inventory_dir, {})
+    envs = load_inventories(inventory_dir)
     assign_purls(envs)
     for env in envs:
         db = next((d for d in dbs if d.sources()), dbs[0])
