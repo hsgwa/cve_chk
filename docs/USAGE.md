@@ -16,7 +16,7 @@
 
 ## 1. セットアップ（管理 PC）
 
-Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.5.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
+Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.6.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
 
 ```
 pip install -e .
@@ -117,7 +117,7 @@ Trivy（`trivy.exe`）を使いたい場合は `--scanner trivy` で従来どお
 - Linux では、syft の展開・一時ファイル・キャッシュもすべてフォルダの中（`.work/`）に置き、終わると消します。
 - 何もインストールせず、レジストリ・サービス・タスク・設定ファイルを変えません。ファイルは読むだけで、Windows では他のプログラムの書き込み・削除を妨げない開き方をします。
 - 出力先の空きが 500 MB 未満なら、何も書かずに止めます（終了コード 4。Linux は `MIN_FREE_MB`、Windows は `-MinFreeMB` で変更）。
-- **CI で毎回確かめています。** Amazon Linux 2023・Ubuntu 24.04 のコンテナではファイルシステム全体、Windows Server ではユーザーのプロファイル・一時フォルダ・ProgramData・インストール済みソフト・サービス・タスクの一覧を、実行前とフォルダ削除後で比べ、差が無いことを確かめます（`tests/e2e/footprint_*.*`）。
+- **CI で毎回確かめています。** Amazon Linux 2023・Ubuntu 24.04 のコンテナではファイルシステム全体、Windows Server ではユーザーのプロファイル・一時フォルダ・ProgramData・インストール済みソフト・サービス・タスクの一覧を、実行前とフォルダ削除後で比べ、差が無いことを確かめます（`tests/e2e/footprint_*.*`）。Windows では、デスクトップのプロセスがいつでも書き換えるもの（エクスプローラーの縮小版のキャッシュ、ストアアプリの設定、ユーザーのレジストリの記録、PowerShell の起動時のファイル）と、待つだけのスクリプトを同じように実行したときに変わったもの（対照）は比べません。
 - 残るもの: OS が記録するもの（Linux の sudo のログやシェルの履歴、Windows のイベントログ、PowerShell が起動のたびに書くファイル）。これはこのツールに限らず、コマンドを実行すれば記録されます。
 - 例外: 個別製品の版取得で `cmd`（コマンドを実行して版を読む）を使う場合、そのコマンドが書き込むものは対象外です（例: `java -version` は `/tmp/hsperfdata_<ユーザー名>` を作ることがある）。`cmd` を足すときは、検証機でそのコマンドが何を書くかを確かめてください。
 
