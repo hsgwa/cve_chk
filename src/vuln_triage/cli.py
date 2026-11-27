@@ -1,6 +1,7 @@
 """CLI エントリポイント。"""
 from __future__ import annotations
 
+import json
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -254,6 +255,34 @@ def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory
     click.echo("==== 出力ファイル ====")
     for path in written:
         click.echo(str(path))
+
+
+@main.command("scan-archive")
+@click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option("--inventory-dir", required=True, type=click.Path(file_okay=False),
+              help="結果を置く回収物のフォルダ（<環境名>/archive_inventory.json を作る）")
+@click.option("--env", "env_name", help="環境名。指定するとすべてを 1 つの環境にまとめる（例: 関数とそのレイヤー）。"
+              "省略時はファイル・フォルダごとに、その名前の環境を作る")
+def scan_archive_command(paths, inventory_dir, env_name):
+    """zip / jar / war / ear / whl（と展開したフォルダ）の中のライブラリを調べ、回収物として置きます。
+
+    Lambda のデプロイ用 zip やレイヤー、アプリケーションの war や fat jar などを、サーバーで回収せずに調べられます。
+    作った回収物は run（または run_check.ps1）でほかの環境と同じように照合されます。
+    """
+    from .archive_scan import iter_targets, scan
+
+    for name, targets in iter_targets([Path(p) for p in paths], env_name):
+        result = scan(targets)
+        out = Path(inventory_dir) / name
+        out.mkdir(parents=True, exist_ok=True)
+        file = out / "archive_inventory.json"
+        data = result.inventory(name, [str(t) for t in targets])
+        file.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        click.echo(f"{name}: jar 等 {len(data['sections']['java_archives']['items'])} 件、"
+                   f"Python {len(data['sections']['python_packages']['items'])} 件、"
+                   f"npm {len(data['sections']['node_packages']['items'])} 件、"
+                   f"NuGet {len(data['sections']['dotnet_packages']['items'])} 件"
+                   + (f"、読めなかったもの {len(result.skipped)} 件" if result.skipped else "") + f" → {file}")
 
 
 @main.command("build-sbom")

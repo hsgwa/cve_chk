@@ -29,7 +29,7 @@
      logs\             実行ログ（自動。90 日で消える）
    ```
 
-3. 初回のデータ取得: `vuln-triage db-update --inventory-dir D:\vuln\inventory`（数十分、2 GB 程度）。
+3. 初回のデータ取得: `vuln-triage db-update --inventory-dir D:\vuln\inventory`（数十分、2.3 GB 程度。空きは 5 GB 以上を用意する）。
 4. 試しに調査を実行する（ツールのフォルダで）:
 
    ```
@@ -110,7 +110,7 @@
 | Windows の OS 以外の Microsoft 製品（Office、SQL Server、.NET ランタイムなど） | Windows OS の判定は OS のビルド番号だけを見る | 会社公表リストに製品名と版の条件を書く（インストール済みソフトの版と照合する） |
 | Ubuntu の修正版がまだ無い CVE | OSV.dev の Ubuntu のデータに載らない | 修正版が出ると載る。急ぐものは Ubuntu の告知で確かめる |
 | RHEL の追加製品（OpenShift、JBoss など）、延長サポート（EUS）、Ubuntu の FIPS / Realtime | 別の系統の情報で、使っていない（[DEFECTS.md](DEFECTS.md) の 4 章） | 該当するホストは製品の告知で確かめる |
-| コンテナの中身、Lambda の実行環境、AWS マネージドサービス側 | 回収の対象外 | イメージやデプロイ用 zip を別に syft で回収する（[USAGE.md](USAGE.md) の「Lambda」） |
+| コンテナの中身、Lambda の実行環境（ランタイムと OS）、AWS マネージドサービス側 | 回収の対象外 | Lambda のデプロイ用 zip・レイヤー、war・jar は `vuln-triage scan-archive` で調べる。コンテナイメージは syft で回収する（[USAGE.md](USAGE.md) の「zip・jar・war などのファイルを調べる（Lambda など）」）。ランタイムのサポート終了日は AWS の文書で確かめる |
 | 版を取れない製品（HULFT などで版の取り方を書いていないもの） | 存在だけ分かる | 「影響あり（比較不能）」になる。版の取り方を書く |
 | 権限不足で読めなかったフォルダ、走査範囲外のフォルダ | 回収できない | 「収集状況」の「読めなかったフォルダ」「スキャン範囲外で動作中」を見て回収し直す |
 | 実際に攻撃できるか | 版の一致だけを見る | 人が判断する |

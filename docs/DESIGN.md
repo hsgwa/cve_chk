@@ -38,6 +38,7 @@
 | `verdict.py` | 通達 × 環境 の判定 |
 | `report/tables.py`、`report/writers.py` | 表の組み立てと、Excel / CSV / 標準出力への書き出し |
 | `trivy_runner.py` | Trivy を使う場合の呼び出し（任意） |
+| `archive_scan.py` | `scan-archive`: zip / jar / war / ear / whl（と展開したフォルダ）をメモリ上で読み、入れ子の jar もたどって Java・Python・npm・NuGet のライブラリを探し、`inventory.json` の形（OS は `archive`）で書き出す |
 | `maven_lookup.py` | jar の SHA-1 から Maven の座標を調べる（任意） |
 
 ## 3. 回収と読み込み

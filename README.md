@@ -8,6 +8,7 @@
 - **対象マシンから出るのは、抽出したソフトの一覧（SBOM など）だけ。** 対象マシンはインターネットに接続しません。一覧を人が管理 PC に持ち出します。
 - **脆弱性の照合は手元で行う。** 管理 PC に置いた脆弱性データと突き合わせます。ソフトの一覧やホスト名を外部に送りません。
 - **インターネット上の公開情報と比べる。** 脆弱性データは OSV.dev（各ディストリビューションやライブラリの脆弱性情報を集めたもの）と Amazon Linux の公式情報から、Windows OS の修正情報は Microsoft の公開データから取得し、照合の前に最新にします。
+- **zip・jar・war などのファイルもそのまま調べられる。** Lambda のデプロイ用 zip やレイヤー、アプリケーションの war や fat jar を、サーバーで回収せずに管理 PC で調べられます（入れ子の jar もたどります）。
 - **通達ごとに必ず結論を出す。** 会社公表リストの通達 1 件ごとに、すべての環境について「影響あり / 影響なし / 未使用 / 対象外 / 判定不能」のどれかと、社内ランク・対応期限を出します。確かめられないものを「影響なし」にはしません。
 
 ## 用語
@@ -19,7 +20,7 @@
 | 回収スクリプト | 対象マシンで実行して、入っているソフトの一覧を作るスクリプト。Linux は `collect_linux.sh`、Windows は `collect_win.ps1` |
 | SBOM | ソフトウェア部品表（Software Bill of Materials）。入っているソフトの名前・版・種類の一覧。このツールは CycloneDX という形式の JSON を使う |
 | syft | SBOM を作る無償のツール（Anchore 社）。Linux の回収で使う。単体のプログラムなので、持ち込んで展開するだけで動く |
-| 回収物 | 回収スクリプトが出すファイル。Linux は SBOM（`cdx_syft.json`）と OS 情報（`os_info.json`）、Windows はソフトの一覧（`inventory.json`） |
+| 回収物 | 回収スクリプトが出すファイル。Linux は SBOM（`cdx_syft.json`）と OS 情報（`os_info.json`）、Windows はソフトの一覧（`inventory.json`）。zip・jar などを調べた場合は `archive_inventory.json` |
 | 環境 | 判定の単位。ふつうは対象マシン 1 台。管理 PC では回収物を置くフォルダの名前が環境名になる |
 | 環境マスタ | 環境の一覧（`env_master.csv`）。外部公開か社内限定か（ランクの決め方が変わる）と、回収漏れの検出に使う |
 | 会社公表リスト（通達） | 会社が公表する脆弱性の一覧（Excel / CSV）。1 行が通達 1 件。CVE 番号、製品名と影響する版、KB 番号のどれかで書かれる |
@@ -43,7 +44,7 @@
 - **版の比べ方はパッケージの種類ごとに違います**（Debian / Ubuntu、RPM、Maven、PyPI などの規則）。比べられない版は、安全側に「影響あり（比較不能）」にします。
 - **Linux の OS パッケージは、ディストリビューションの修正情報で判定します。** 版の数字が古く見えても、ディストリビューションが修正を取り込んでいれば「影響なし」です。
 - **確かめられないものは「影響なし」にしません。** 回収できていない環境、版が分からない製品、照合のデータが無いパッケージは「判定不能」か「影響あり（比較不能）」になります。
-- 判定できる対象: Ubuntu / Debian / RHEL 系 / Amazon Linux / Alpine の OS パッケージ、Java・Python・npm・NuGet・Go・Rust・Ruby などのライブラリ、Windows OS と適用済みの更新プログラム（KB）。
+- 判定できる対象: Ubuntu / Debian / RHEL 系 / Amazon Linux / Alpine の OS パッケージ、Java・Python・npm・NuGet・Go・Rust・Ruby などのライブラリ、Windows OS と適用済みの更新プログラム（KB）、zip・jar・war・ear・whl の中のライブラリ（Java・Python・npm・NuGet）。
 - 詳しい仕組みは [docs/DESIGN.md](docs/DESIGN.md) にあります。
 
 ## レポート
@@ -63,7 +64,7 @@
 
 | | 必要なもの |
 |---|---|
-| 管理 PC | Windows（Linux でも動く）、Python 3.10 以降、インターネット接続（OSV.dev、Amazon Linux のリポジトリ、Microsoft）、空きディスク 2 GB 以上 |
+| 管理 PC | Windows（Linux でも動く）、Python 3.10 以降、インターネット接続（OSV.dev、Amazon Linux のリポジトリ、Microsoft）、空きディスク 5 GB 以上（脆弱性データ 2.3 GB と、全件の取り直しの間の一時的な分） |
 | 対象マシン（Linux） | bash、syft の tar.gz（amd64 / arm64）。root での実行を推奨 |
 | 対象マシン（Windows） | Windows PowerShell 5.1 以降。管理者での実行を推奨 |
 

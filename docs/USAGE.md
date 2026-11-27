@@ -5,7 +5,7 @@
 | 章 | 内容 |
 |---|---|
 | [1. セットアップ（管理 PC）](#1-セットアップ管理-pc) | インストール、脆弱性データの取得と更新、調査をまとめて実行するスクリプト |
-| [2. 回収（オフライン環境）](#2-回収オフライン環境) | 対象マシンに残さない方法（フォルダ 1 つで完結）、Linux / Windows / 商用ソフト / Lambda での回収、回収物の置き方 |
+| [2. 回収（オフライン環境）](#2-回収オフライン環境) | 対象マシンに残さない方法（フォルダ 1 つで完結）、Linux / Windows / 商用ソフトでの回収、zip・jar・war などのファイル（Lambda など）の調べ方、回収物の置き方 |
 | [3. 入力ファイル](#3-入力ファイル) | 環境マスタと会社公表リストの書き方 |
 | [4. 実行](#4-実行) | `check-inputs` と `run`、主なオプション |
 | [5. 出力](#5-出力) | レポートのシート、影響有無の意味、社内ランクと対応期限 |
@@ -16,7 +16,7 @@
 
 ## 1. セットアップ（管理 PC）
 
-Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.6.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
+Python 3.10 以降が必要です。版を固定して使う場合は、[リリース](https://github.com/hsgwa/cve_chk/releases)の版を取得してください（例: `git clone --branch v0.7.0 https://github.com/hsgwa/cve_chk.git`）。取得したフォルダで次を実行します。
 
 ```
 pip install -e .
@@ -188,9 +188,36 @@ powershell -ExecutionPolicy Bypass -File collect_win.ps1 -AllDrives
 
 パッケージ管理の外に置かれる製品は、両スクリプト冒頭の「個別製品の版取得」の表で扱います。初期状態では **名前で探して「存在する（版不明）」と記録するだけ**なので、判定は「影響あり（比較不能）」になります。版まで取るには、実機で版が分かるコマンドかファイルを確認し、表に 1 行足してください（記入例がコメントで入っています）。Windows でインストーラを使って入れた製品は、レジストリから版が取れます。
 
-### Lambda
+### zip・jar・war などのファイルを調べる（Lambda など）
 
-実行環境の中ではスクリプトを動かせません。デプロイ用 zip を展開したフォルダに対して Linux 上で `SCAN_ROOT=<展開先> bash collect_linux.sh` か `syft scan dir:<展開先> -o cyclonedx-json=cdx_syft.json` を実行するか、Amazon Inspector の SBOM エクスポート（CycloneDX）を環境フォルダに置いてください。
+サーバーで回収せずに、成果物のファイルを管理 PC で直接調べられます。Lambda のデプロイ用 zip やレイヤー、アプリケーションの war や fat jar（Spring Boot など）、Python の wheel が対象です。syft も Linux も不要で、ファイルを展開せずに読みます。
+
+```
+vuln-triage scan-archive function.zip layer-1.zip --inventory-dir inventory --env lambda-my-function
+vuln-triage scan-archive app.war batch.jar --inventory-dir inventory
+vuln-triage scan-archive D:\extracted\my-function --inventory-dir inventory --env lambda-my-function
+```
+
+- 調べたものは `inventory\<環境名>\archive_inventory.json` に置かれ、`run`（または `run_check.ps1`）でほかの環境と同じように照合されます。環境マスタにも環境名を登録してください（公開区分でランクが決まり、回収漏れも検出できます）。
+- `--env` を付けると、指定したものをすべて 1 つの環境にまとめます（関数とそのレイヤーなど）。付けなければ、ファイル・フォルダごとに、その名前の環境を作ります。
+- 見つけるもの:
+  - Java: `META-INF/maven/.../pom.properties`。zip・war・ear の中の jar、jar の中の jar（`BOOT-INF/lib/`、`WEB-INF/lib/` など）もたどる（4 段まで）。pom.properties の無い jar は MANIFEST かファイル名から推定し、SHA-1 を記録する（`run --resolve-hashes` で Maven Central に照会できる）
+  - Python: `*.dist-info/METADATA`、`*.egg-info/PKG-INFO`（Lambda の zip の直下、レイヤーの `python/lib/python3.x/site-packages/` など）
+  - npm: `node_modules/<名前>/package.json`
+  - .NET: `*.deps.json`
+- OS は無い扱いです（Windows の KB・OS の通達は「対象外」）。Lambda の実行環境そのもの（ランタイムと OS）は AWS が管理しているので対象外です。ランタイムのサポート終了日は AWS の文書で確かめてください。
+- 読めなかったもの（壊れた zip、512 MB を超える入れ子）は「収集状況」の「読めなかったフォルダ」に出ます。
+- Go などで作った実行ファイル（Lambda の `bootstrap` など）の中のライブラリは調べません。
+
+Lambda のファイルの取り出し方:
+
+| 種類 | 取り出し方 |
+|---|---|
+| zip で配置した関数 | Lambda のコンソールの関数の画面で「ダウンロード」→「関数コード .zip」。AWS CLI なら `aws lambda get-function --function-name <関数名> --query Code.Location --output text` で表示される URL から取得する |
+| レイヤー | `aws lambda get-layer-version --layer-name <レイヤー名> --version-number <版> --query Content.Location --output text` で表示される URL から取得する |
+| コンテナイメージの関数 | このコマンドでは調べられない。イメージを `docker save` で tar にし、Linux 上で `syft scan docker-archive:<tar> -o cyclonedx-json=cdx_syft.json` を実行して、環境フォルダに置く |
+
+Amazon Inspector の SBOM エクスポート（CycloneDX）を環境フォルダに置いても読み込みます。
 
 ### 回収後
 

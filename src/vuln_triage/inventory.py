@@ -307,7 +307,11 @@ def load_inventory(data: dict, env: EnvInventory, source: str) -> None:
     env.os_family = str(os_info.get("family") or "windows")
     env.os_name = " ".join(str(os_info.get(k) or "") for k in ("product_name", "display_version")).strip()
     env.os_build = str(os_info.get("build") or "")
-    env.sections["os"] = SectionStatus(status="ok" if env.os_build else "failed", count=1 if env.os_build else 0)
+    if env.os_family == "archive":
+        # scan-archive で zip / jar などを調べた結果。OS は無い（Windows の KB・OS の通達は「対象外」になる）
+        env.sections["os"] = SectionStatus(status="ok", count=0)
+    else:
+        env.sections["os"] = SectionStatus(status="ok" if env.os_build else "failed", count=1 if env.os_build else 0)
     _load_common(data, env, source)
 
     hotfix_items = _section(data, "hotfixes", env)
