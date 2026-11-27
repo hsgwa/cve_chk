@@ -143,22 +143,22 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Expand-Archive -LiteralPath (Get-ChildItem dist\*.zip).FullName -DestinationPath C:\portable
           $zk = (Get-ChildItem C:\portable -Directory).FullName
-          $repo = $PWD.Path
           Push-Location $zk
           & .\zk.cmd --version
           if ($LASTEXITCODE) { throw 'zk.cmd --version failed' }
           & .\python\python.exe -c "import sys; assert all(p.startswith(sys.prefix) for p in sys.path), sys.path; print('bundled Python only sees its own folder')"
-          & .\zk.cmd check --inventory-dir "$repo\examples\inventory" --env-master "$repo\examples\env_master.csv" `
-              --advisory "$repo\examples\advisory_list.xlsx" --db-dir "$repo\examples\vulndb" --cache-dir "$repo\examples\cache" `
-              --offline --base-date 2026-11-20 --out-dir C:\portable-out
-          if ($LASTEXITCODE) { throw "zk.cmd check failed: $LASTEXITCODE" }
+          & .\zk.cmd demo --out-dir C:\portable-out
+          if ($LASTEXITCODE) { throw "zk.cmd demo failed: $LASTEXITCODE" }
+          # The first-time steps from docs/usage/README.md, using only what is in the zip
           $base = 'C:\portable-work'
-          New-Item -ItemType Directory -Force "$base\advisory", "$base\inventory" | Out-Null
-          Copy-Item -Recurse "$repo\examples\inventory\*" "$base\inventory\"
-          Copy-Item "$repo\examples\advisory_list.xlsx" "$base\advisory\"
-          Copy-Item "$repo\examples\env_master.csv" "$base\env_master.csv"
-          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check_all.ps1 -BaseDir $base -DbDir "$repo\examples\vulndb" -SkipDbUpdate
+          & .\zk.cmd init $base
+          if ($LASTEXITCODE) { throw "zk.cmd init failed: $LASTEXITCODE" }
+          Copy-Item -Recurse ".\examples\inventory\*" "$base\inventory\"
+          Copy-Item ".\examples\advisory_list.xlsx" "$base\advisory\"
+          Copy-Item ".\examples\env_master.csv" "$base\env_master.csv" -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check_all.ps1 -BaseDir $base -DbDir ".\examples\vulndb" -SkipDbUpdate
           if ($LASTEXITCODE) { throw "check_all.ps1 failed: $LASTEXITCODE" }
+          if (-not (Test-Path "$base\reports\$(Get-Content "$base\reports\latest.txt")\report.xlsx")) { throw 'no report from check_all.ps1' }
           Pop-Location
           if (-not (Test-Path C:\portable-out\report.xlsx)) { throw 'no report' }
           Write-Host 'portable OK'

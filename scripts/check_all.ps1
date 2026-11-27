@@ -10,7 +10,7 @@ check_all.ps1 - 調査をまとめて実行する（脆弱性データの更新 
   作業フォルダの構成:
     <BaseDir>\inventory\<環境名>\   回収物を置く（人が置く）
     <BaseDir>\advisory\             会社公表リスト（.xlsx / .xlsm / .csv。人が置く。最も新しいものを使う）
-    <BaseDir>\env_master.csv        環境マスタ（人が用意する）
+    <BaseDir>\env_master.csv        サーバー一覧（人が用意する。調べる対象マシンの一覧）
     <BaseDir>\reports\<日付>\       レポート（自動。reports\latest.txt に最新のフォルダ名）
     <BaseDir>\logs\                 実行ログ（自動。run_YYYYMMDD.log）
 
@@ -48,6 +48,10 @@ if (-not $Python) {
 $zkPyz = Join-Path $WorkDir 'zk.pyz'
 # @(...) で必ず配列にする（要素が 1 つだと文字列になり、@toolArgs で 1 文字ずつに分かれてしまう）
 [string[]]$toolArgs = @(if (Test-Path -LiteralPath $zkPyz) { $zkPyz } else { '-m'; 'zeijaku_kakunin' })
+if (-not (Test-Path -LiteralPath $BaseDir -PathType Container)) {
+    Write-Host ('作業フォルダがありません: {0}。先に、ツールのフォルダで zk init {0} を実行してください' -f $BaseDir)
+    exit 2
+}
 $BaseDir = (Resolve-Path -LiteralPath $BaseDir).Path
 $inventoryDir = Join-Path $BaseDir 'inventory'
 $advisoryDir = Join-Path $BaseDir 'advisory'
@@ -92,8 +96,8 @@ $common = @()
 if ($DbDir) { $common += @('--db-dir', $DbDir) }
 if ($Config) { $common += @('--config', $Config) }
 
-if (-not (Test-Path -LiteralPath $inventoryDir)) {
-    Write-Log ('終了: 失敗。回収物のフォルダがありません: {0}' -f $inventoryDir)
+if (-not (Get-ChildItem -LiteralPath $inventoryDir -Directory -ErrorAction SilentlyContinue)) {
+    Write-Log ('終了: 失敗。回収物がありません: {0} の下に、対象マシンから持ち出したホストごとのフォルダを置いてください' -f $inventoryDir)
     exit 2
 }
 
@@ -125,7 +129,7 @@ $outDir = Join-Path $reportsDir $name
 $arguments = @('check', '--inventory-dir', $inventoryDir, '--advisory', $advisory.FullName, '--out-dir', $outDir,
     '--cache-dir', (Join-Path $BaseDir 'cache')) + $common
 if (Test-Path -LiteralPath $envMaster) { $arguments += @('--env-master', $envMaster) }
-else { Write-Log ('注意: 環境マスタがありません（{0}）。すべての環境を internal として扱い、回収漏れも検出できません' -f $envMaster) }
+else { Write-Log ('注意: サーバー一覧（env_master.csv）がありません（{0}）。すべての環境を internal として扱い、回収漏れも検出できません' -f $envMaster) }
 if ($previous) { $arguments += @('--previous', $previous.FullName); Write-Log ('前回のレポート: {0}' -f $previous.Name) }
 
 $runCode = Invoke-Tool $arguments

@@ -1,4 +1,4 @@
-"""回収ファイル（<inventory-dir>/<環境名>/*.json）と環境マスタの読み込み。
+"""回収ファイル（<inventory-dir>/<環境名>/*.json）とサーバー一覧の読み込み。
 
 中身を見て次の形式を自動判別する:
 - CycloneDX JSON（syft / jbom / Amazon Inspector など）

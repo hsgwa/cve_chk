@@ -21,7 +21,7 @@
 | `cli.py` | コマンド `zk update` / `zk check` / `zk preview` / `zk export-sbom` |
 | `config.py` | `config.yaml` の読み込みと既定値 |
 | `models.py` | データ構造（`Component`、`EnvInventory`、`Advisory`、`Finding`、`Verdict`）と判定の値 |
-| `inventory.py` | 回収ファイルの形式判別と読み込み、環境マスタ |
+| `inventory.py` | 回収ファイルの形式判別と読み込み、サーバー一覧 |
 | `purl.py` | PURL の読み取り。ツール内で PURL を読むのはここだけ |
 | `sbom_builder.py` | Windows の回収データに PURL を付ける。Trivy 用の CycloneDX も作る |
 | `advisory.py` | 会社公表リスト（xlsx / xlsm / csv）の読み込み |
@@ -63,9 +63,9 @@
 
 素の syft の出力（CycloneDX）だけを置いた環境も扱えます。OS は SBOM の `operating-system` の要素と PURL の `distro` から判別し、回収日時は `metadata.timestamp` を使います（`os_info.json` があればそちらを優先）。
 
-CycloneDX か `inventory.json` が 1 つでもあれば「全体を回収した環境」（`full_collection`）とします。これが無い環境で製品が見つからないときは「未使用」ではなく「判定不能」にします。環境マスタに無い環境は `internal`（社内限定）として扱い、警告を出します。
+CycloneDX か `inventory.json` が 1 つでもあれば「全体を回収した環境」（`full_collection`）とします。これが無い環境で製品が見つからないときは「未使用」ではなく「判定不能」にします。サーバー一覧に無い環境は `internal`（社内限定）として扱い、警告を出します。
 
-環境マスタにあるのに回収フォルダが無い環境も、環境の一覧に入れます（`not_collected`）。この環境はすべての通達で「判定不能」（判定区分「回収なし」）になり、サマリで警告します。回収し忘れたホストが黙ってレポートから消えないようにするためです。
+サーバー一覧にあるのに回収フォルダが無い環境も、環境の一覧に入れます（`not_collected`）。この環境はすべての通達で「判定不能」（判定区分「回収なし」）になり、サマリで警告します。回収し忘れたホストが黙ってレポートから消えないようにするためです。
 
 ### 会社公表リストの読み込み（`advisory.py`）
 
@@ -213,7 +213,7 @@ MSRC に修正情報がある CVE は Windows OS の脆弱性とみなし、Wind
 | 製品名（と版条件） | 製品名でコンポーネントを探し、版条件で判定する |
 | CVE と製品名の両方 | 両方の結果を出す。同じパッケージ・版で両方が影響ありなら 1 行にまとめる（判定区分「CVE（脆弱性DB＋ルール）」） |
 
-環境マスタにだけあって回収フォルダが無い環境は、通達の内容によらず「判定不能」です。OS を回収データから判別できない環境は、KB と Windows OS の CVE の通達で「対象外」にせず「判定不能」にします。
+サーバー一覧にだけあって回収フォルダが無い環境は、通達の内容によらず「判定不能」です。OS を回収データから判別できない環境は、KB と Windows OS の CVE の通達で「対象外」にせず「判定不能」にします。
 
 製品名での判定（`_judge_product`）の詳細です。
 

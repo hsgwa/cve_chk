@@ -60,7 +60,7 @@ def _parse_date(_ctx, _param, value: str | None) -> date | None:
 common_inputs = [
     click.option("--inventory-dir", "--sbom-dir", "inventory_dir", required=True,
                  type=click.Path(exists=True, file_okay=False), help="回収ファイルのフォルダ（<環境名>/ のサブフォルダ構成）"),
-    click.option("--env-master", type=click.Path(exists=True, dir_okay=False), help="環境マスタ CSV"),
+    click.option("--env-master", type=click.Path(exists=True, dir_okay=False), help="サーバー一覧（env_master.csv）"),
     click.option("--config", "config_path", type=click.Path(exists=True, dir_okay=False),
                  help="設定ファイル（省略時はカレントの config.yaml）"),
 ]
@@ -78,6 +78,11 @@ def with_options(options):
 @click.version_option(__version__, prog_name="脆弱確認（zk）")
 def main() -> None:
     """脆弱確認（zk）: オフライン環境から回収したソフトの一覧を、会社公表の脆弱性リストと突き合わせます。
+
+    \b
+    はじめて使うとき:
+      zk demo          サンプルでレポートの見本を作る
+      zk init D:\\vuln  作業フォルダを作る（中の「はじめに.txt」を読む）
 
     \b
     ふだんの流れ:
@@ -340,6 +345,72 @@ def check_inputs(inventory_dir, env_master, config_path, advisory):
             hits = sorted({f"{c.name} {c.version}".strip() for env in envs for c in env.components if matcher(c)})
             shown = "、".join(hits[:5]) + (f" ほか {len(hits) - 5} 件" if len(hits) > 5 else "")
             click.echo(f"{item.advisory_id} [{item.product_name}] -> {shown or '該当なし（表記ゆれなら aliases に追加）'}")
+
+
+def _find_examples() -> Path | None:
+    """同梱のサンプル（examples/）を探す。配布物では zk.pyz の隣、リポジトリでは src の 2 つ上。"""
+    for folder in Path(__file__).resolve().parents:
+        if (folder / "examples" / "env_master.csv").is_file():
+            return folder / "examples"
+    return None
+
+
+@main.command("demo")
+@click.option("--out-dir", default="demo", show_default=True, help="サンプルのレポートの出力先")
+@click.pass_context
+def demo(ctx, out_dir):
+    """同梱のサンプルで照合して、レポートの見本を作ります（ネット接続は不要）。"""
+    examples = _find_examples()
+    if examples is None:
+        raise click.ClickException("サンプル（examples フォルダ）が見つかりません。配布物の zip を展開し直してください")
+    ctx.invoke(run, inventory_dir=str(examples / "inventory"), env_master=str(examples / "env_master.csv"),
+               config_path=None, advisory=str(examples / "advisory_list.xlsx"), out_dir=out_dir,
+               only_advisory=False, base_date=date(2026, 11, 20), scanner="osv", db_dir=str(examples / "vulndb"),
+               skip_trivy=False, trivy_results_dir=None, save_trivy_json=None, work_dir=str(Path(out_dir) / "work"),
+               cache_dir=str(examples / "cache"), offline=True, no_msrc=False, resolve=False, no_xlsx=False,
+               previous=None)
+    _echo(f"見本のレポート: {Path(out_dir).resolve() / 'report.xlsx'}")
+
+
+_SERVER_LIST_HEADER = "env_name,exposure,system_name\n"
+_INIT_README = """\
+この作業フォルダの使い方（脆弱確認 zk）
+
+1. inventory\\ の下に、対象マシンから持ち出した回収物を、ホストごとのフォルダのまま置く
+     inventory\\web01\\cdx_syft.json、inventory\\web01\\os_info.json など
+2. env_master.csv（サーバー一覧）に、調べる対象マシンを 1 行ずつ書く
+     env_name     inventory\\ の下のフォルダ名（ふつうはホスト名）
+     exposure     internet（インターネットに公開）か internal（社内だけ）
+     system_name  システム名（メモ。空でもよい）
+   例: web01,internet,受発注Web
+3. advisory\\ に、会社が公表した脆弱性の一覧（Excel か CSV）を置く
+4. ツールのフォルダで次を実行する
+     powershell -ExecutionPolicy Bypass -File scripts\\check_all.ps1 -BaseDir {base}
+5. reports\\<日付>\\report.xlsx を開く
+
+使い方: https://github.com/hsgwa/cve_chk/blob/main/docs/usage/README.md
+"""
+
+
+@main.command("init")
+@click.argument("folder", type=click.Path(file_okay=False))
+def init_command(folder):
+    """作業フォルダを作ります（回収物・サーバー一覧・会社公表リストの置き場所と、説明のファイル）。"""
+    base = Path(folder).resolve()
+    for name in ("inventory", "advisory", "reports", "logs"):
+        (base / name).mkdir(parents=True, exist_ok=True)
+    created = []
+    server_list = base / "env_master.csv"
+    if not server_list.exists():
+        server_list.write_text(_SERVER_LIST_HEADER, encoding="utf-8-sig")
+        created.append(server_list.name)
+    readme = base / "はじめに.txt"
+    if not readme.exists():
+        readme.write_text(_INIT_README.format(base=base), encoding="utf-8-sig")
+        created.append(readme.name)
+    _echo(f"作業フォルダ: {base}")
+    _echo("作ったもの: inventory\\ advisory\\ reports\\ logs\\ " + " ".join(created))
+    _echo(f"次にすること: {readme} を読む")
 
 
 # ---- 旧名（0.7.0 まで）の別名。一覧には出さず、使うと新しい名前を案内する ----

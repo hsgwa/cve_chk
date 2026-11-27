@@ -11,32 +11,17 @@
 | 回収（対象マシンで実行） | 人 | 月 1 回など（下の 3 章） | `collect_linux.sh` / `collect_win.ps1` |
 | 回収物の持ち出しと配置 | 人 | 回収のたび | `inventory\<環境名>\` に置く |
 | 会社公表リストの配置 | 人 | 通達が出るたび | `advisory\` に置く（最も新しいファイルを使う） |
-| 環境マスタの更新 | 人 | ホストの増減のたび | `env_master.csv` |
+| サーバー一覧の更新 | 人 | ホストの増減のたび | `env_master.csv` |
 | 調査の実行 | 人（コマンド 1 つ） | 通達が出たとき、回収物を入れ替えたとき、定期（週 1 回など） | `check_all.ps1`。中ではツールが脆弱性データの更新（差分）、照合、レポートの作成を順に行う |
 | レポートの確認と対応 | 人 | 調査のたび | 「前回との差分」「要更新パッケージ」から見る |
 
 ## 2. 管理 PC の準備
 
 1. リリースのページから `zeijaku-kakunin-<版>-windows-x64.zip` を取得し、管理 PC のローカルのディスクに展開する（インストールも管理者の権限も不要。Python も同梱。[setup.md](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/setup.md)）。
-2. 作業フォルダを作る（ローカルのディスク。`%TEMP%` のような自動で掃除される場所は不可）。
-
-   ```
-   D:\vuln\
-     inventory\        回収物（<環境名>\ ごと）
-     advisory\         会社公表リスト
-     env_master.csv    環境マスタ
-     reports\          レポート（自動。証跡なので消さない）
-     logs\             実行ログ（自動。90 日で消える）
-   ```
-
-3. 初回のデータ取得（ツールのフォルダで）: `zk update --inventory-dir D:\vuln\inventory`（数十分、2.3 GB 程度。空きは 5 GB 以上を用意する）。
-4. 試しに調査を実行する（ツールのフォルダで）:
-
-   ```
-   powershell -ExecutionPolicy Bypass -File scripts\check_all.ps1 -BaseDir D:\vuln
-   ```
-
-   `D:\vuln\logs\run_<日付>.log` の最後が「終了: 成功」になり、`reports\<日付>\` ができることを確かめる。
+2. ツールのフォルダで `zk demo` を実行し、レポートの見本ができることを確かめる。
+3. 作業フォルダを作る: `zk init D:\vuln`（ローカルのディスク。`%TEMP%` のような自動で掃除される場所は不可）。
+4. 回収物とサーバー一覧、会社公表リストを置き、調査を実行する（初回は脆弱性データの取得に数十分。2.3 GB 程度で、空きは 5 GB 以上を用意する）。手順は [はじめに](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/README.md) の「本番で使う」。
+5. `D:\vuln\logs\run_<日付>.log` の最後が「終了: 成功」になり、`reports\<日付>\` ができることを確かめる。
 
 `check_all.ps1` の終了コード: 0 = 成功、1 = データの更新の一部に失敗したが照合はできた（前回のデータを使った）、2 = 照合できなかった（回収物や会社公表リストが無いなど）。
 
@@ -44,7 +29,7 @@
 
 | 作業 | 担当の例 | 頻度 | 確かめること |
 |---|---|---|---|
-| 対象ホストを環境マスタに登録する | 管理者 | ホストの増減のたび | 登録したのに回収物が無い環境は「判定不能（回収漏れ）」になる |
+| 対象ホストをサーバー一覧に登録する | 管理者 | ホストの増減のたび | 登録したのに回収物が無い環境は「判定不能（回収漏れ）」になる |
 | 回収する | 各環境の担当 | 月 1 回など。重要なホストや変更の多いホストは多めに | Linux は root、Windows は管理者で実行。`syft_<版>_checksums.txt` も持ち込む |
 | 回収物を `inventory\` に置く | 管理者 | 回収のたび | 古い回収物は同じ環境名のフォルダごと置き換える |
 | 会社公表リストを置く | 管理者 | 通達のたび | 置いたら `zk preview --advisory` で警告（読まなかったシート、結合セル、読めない CVE）と、製品名の当たり方を見る。表記ゆれは `config.yaml` の `aliases` に登録する |
@@ -63,7 +48,7 @@
 - [ ] 検証機の回収結果で、主要な製品（Java、Web サーバー、HULFT、DataMagic など）が出ていることを `zk preview` で確かめた
 - [ ] HULFT / DataMagic の版の取り方を、両方の回収スクリプトに書いた（書くまでは「存在する（版不明）」= 影響あり（比較不能））
 - [ ] 会社公表リストの見出しを `config.yaml` の `advisory_input` に合わせ、`zk preview --advisory` で警告が無いことを確かめた
-- [ ] 環境マスタに対象のホストをすべて登録し、公開区分（internet / internal）を確かめた
+- [ ] サーバー一覧に対象のホストをすべて登録し、公開区分（internet / internal）を確かめた
 - [ ] 社内ランクと期限の決め方（`config.yaml` の `rank_matrix`）が社内の規程と合っていることを確かめた
 - [ ] 管理 PC の作業フォルダの権限を担当者だけに絞った（回収物とレポートは機密情報）
 - [ ] 管理 PC から次に接続できることを確かめた: `osv-vulnerabilities.storage.googleapis.com`、`amazonlinux.default.amazonaws.com` などの Amazon Linux のリポジトリ、`api.msrc.microsoft.com`

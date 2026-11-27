@@ -276,7 +276,7 @@ def test_new_and_old_command_names(examples, tmp_path):
     """新しいコマンド名で動き、旧名（0.7.0 まで）も別名として動いて新しい名前を案内する。一覧に旧名は出ない。"""
     runner = CliRunner()
     help_text = runner.invoke(main, ["--help"]).output
-    for new in ("update", "check", "preview", "scan-file", "export-sbom"):
+    for new in ("update", "check", "preview", "scan-file", "export-sbom", "demo", "init"):
         assert new in help_text
     for old in ("db-update", "check-inputs", "scan-archive", "build-sbom"):
         assert old not in help_text
@@ -284,3 +284,26 @@ def test_new_and_old_command_names(examples, tmp_path):
     assert result.exit_code == 0 and "zk preview" in result.output
     result = run_examples(examples, tmp_path, "--no-xlsx")
     assert result.exit_code == 0
+
+
+def test_demo_builds_sample_report(tmp_path):
+    """zk demo は同梱のサンプルで、ネットにつながずにレポートの見本を作る。"""
+    out = tmp_path / "demo"
+    result = CliRunner().invoke(main, ["demo", "--out-dir", str(out)])
+    assert result.exit_code == 0, result.output
+    assert (out / "report.xlsx").is_file() and (out / "report_detail.csv").is_file()
+    assert "見本のレポート" in result.output
+
+
+def test_init_creates_work_folder_and_keeps_existing_files(tmp_path):
+    """zk init は作業フォルダの置き場所と空のサーバー一覧を作る。既にあるサーバー一覧は上書きしない。"""
+    base = tmp_path / "vuln"
+    result = CliRunner().invoke(main, ["init", str(base)])
+    assert result.exit_code == 0, result.output
+    for name in ("inventory", "advisory", "reports", "logs"):
+        assert (base / name).is_dir()
+    assert (base / "env_master.csv").read_text(encoding="utf-8-sig") == "env_name,exposure,system_name\n"
+    assert "check_all.ps1" in (base / "はじめに.txt").read_text(encoding="utf-8-sig")
+    (base / "env_master.csv").write_text("env_name,exposure\nweb01,internet\n", encoding="utf-8")
+    assert CliRunner().invoke(main, ["init", str(base)]).exit_code == 0
+    assert "web01" in (base / "env_master.csv").read_text(encoding="utf-8")

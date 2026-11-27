@@ -8,7 +8,7 @@ zk scan-file app.war batch.jar --inventory-dir D:\vuln\inventory
 zk scan-file D:\extracted\my-function --inventory-dir D:\vuln\inventory --env lambda-my-function
 ```
 
-- 結果は `inventory\<環境名>\archive_inventory.json` に置かれ、`check` でほかの環境と同じように照合されます。環境マスタにも環境名を登録します。
+- 結果は `inventory\<環境名>\archive_inventory.json` に置かれ、`zk check` でほかの環境と同じように照合されます。サーバー一覧にも環境名を登録します。
 - `--env` を付けると、指定したものを 1 つの環境にまとめます（関数とレイヤーなど）。付けなければ、ファイルごとにその名前の環境を作ります。
 - OS は無い扱いです（Windows・OS の通達は「対象外」）。Lambda のランタイムと OS は AWS の管理なので対象外です。
 - 読めなかったもの（壊れた zip、512 MB を超える入れ子）は「収集状況」シートに出ます。

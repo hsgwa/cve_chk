@@ -6,12 +6,12 @@
 D:\vuln\
   inventory\<環境名>\   回収物（人が置く）
   advisory\             会社公表リスト（人が置く。最も新しいファイルを使う）
-  env_master.csv        環境マスタ（人が用意する）
+  env_master.csv        サーバー一覧（人が用意する）
   reports\<日付>\       レポート（自動。reports\latest.txt に最新のフォルダ名）
   logs\                 実行ログ（自動。90 日で消える）
 ```
 
-ローカルのディスクに作ります。`%TEMP%` など自動で掃除される場所は使いません。
+`zk init D:\vuln` で作れます。ローカルのディスクに作ります。`%TEMP%` など自動で掃除される場所は使いません。
 
 ## 回収物 `inventory\<環境名>\`
 
@@ -35,7 +35,9 @@ inventory\
 | CycloneDX JSON（`*.json`） | syft、Amazon Inspector など |
 | `winget export`、`Get-HotFix \| ConvertTo-Json`、`VersionInfo` の JSON | Windows のコマンド |
 
-## 環境マスタ `env_master.csv`
+## サーバー一覧 `env_master.csv`
+
+調べる対象マシンを 1 行ずつ書いた表です。Excel かメモ帳で書き、CSV で保存します。
 
 ```
 env_name,exposure,system_name
@@ -43,8 +45,18 @@ web-ec2,internet,受発注Web
 batch-emr,internal,分析基盤
 ```
 
-- `exposure` は `internet`（外部公開）か `internal`（社内限定）。ランクの決め方が変わります。未登録の環境は `internal` として扱い、警告します。
-- **対象ホストの台帳として使います。** 登録済みで回収物が無い環境は「判定不能（回収漏れ）」になります。対象のホストはすべて登録します。
+| 列 | 書くこと |
+|---|---|
+| `env_name` | `inventory\` の下のフォルダ名（ふつうはホスト名） |
+| `exposure` | `internet`（インターネットに公開）か `internal`（社内だけ） |
+| `system_name` | システム名（メモ。空でもよい） |
+
+使い道は 2 つです。
+
+- **対応期限を決める。** `internet` のサーバーは期限が短くなります（[report.md](https://github.com/hsgwa/cve_chk/blob/main/docs/usage/report.md) の「社内ランクと対応期限」）。書いていないサーバーは `internal` として扱い、警告します。
+- **回収し忘れに気づく。** 書いたのに回収物が無いサーバーは「判定不能（回収漏れ）」と出ます。対象のサーバーはすべて書きます。
+
+無くても動きますが、上の 2 つが働きません。
 
 ## 会社公表リスト `advisory\*.xlsx` / `.xlsm` / `.csv`
 

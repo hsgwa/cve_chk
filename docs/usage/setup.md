@@ -14,11 +14,8 @@
 - 同梱の Python は展開したフォルダの中だけを使います。PC の Python や設定には触れません。
 - 脆弱性データ（`vulndb\`）とキャッシュ（`cache\`）は、ツールのフォルダにできます。
 
-動作確認（同梱のサンプルで動きます。ネット接続は不要）:
+動作確認: `zk demo` で、同梱のサンプルからレポートの見本（`demo\report.xlsx`）を作ります。ネット接続は要りません。
 
-```
-zk check --inventory-dir examples\inventory --env-master examples\env_master.csv --advisory examples\advisory_list.xlsx --db-dir examples\vulndb --cache-dir examples\cache --offline --base-date 2026-11-20 --out-dir out
-```
 ### pip で入れる場合（開発者向け）
 
 リポジトリを取得したフォルダで `pip install -e .` を実行すると `zk` コマンドが使えます（Python 3.10 以降）。
@@ -29,13 +26,15 @@ zk check --inventory-dir examples\inventory --env-master examples\env_master.csv
 
 ## 脆弱性データを取得する
 
-照合は、手元に取得した脆弱性データだけで行います。初回は回収物を置いてから実行します（数十分、約 2.3 GB。空きは 5 GB 以上）。
+照合は、手元に取得した脆弱性データだけで行います。**`check_all.ps1` が照合の前に自動で取得・更新するので、ふだんは何もしなくてかまいません。** 初回は数十分かかり、約 2.3 GB を使います（空きは 5 GB 以上）。
+
+手で取得する場合は、回収物を置いてから実行します。
 
 ```
 zk update --inventory-dir D:\vuln\inventory
 ```
 
-回収物に出てくるパッケージの種類だけを取得し、照合用の索引（SQLite）を作ります。2 回目以降は `check_all.ps1` が照合の前に自動で更新します。
+回収物に出てくるパッケージの種類だけを取得し、照合用の索引（SQLite）を作ります。
 
 - 2 回目以降は差分だけを取り直します（OSV.dev の `modified_id.csv`）。7 日ごと（`vulndb.full_refresh_days`）と `--full` のときは全件を取り直します。
 - 更新に失敗したデータは前回の内容のまま残ります（終了コード 1）。
