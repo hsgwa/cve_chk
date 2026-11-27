@@ -187,9 +187,10 @@ def db_update(inventory_dir, ecosystems, imports, force_full, db_dir, config_pat
 @click.option("--no-xlsx", is_flag=True, help="Excel を出力しない（CSV のみ）")
 @click.option("--previous", type=click.Path(exists=True, file_okay=False),
               help="前回の出力フォルダ。比べて「新たに影響あり」「解消」を出す（前回との差分）")
+@click.option("--sample-data", is_flag=True, hidden=True, help="同梱のサンプル（zk demo）。データの古さを警告しない")
 def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory, base_date, scanner, db_dir,
         skip_trivy, trivy_results_dir, save_trivy_json, work_dir, cache_dir, offline, no_msrc, resolve, no_xlsx,
-        previous):
+        previous, sample_data=False):
     """突き合わせを実行してレポートを出力します。"""
     db_info = None
     try:
@@ -229,7 +230,7 @@ def run(inventory_dir, env_master, config_path, advisory, out_dir, only_advisory
                     f"  zk update --inventory-dir {inventory_dir}")
             assign_purls(envs)
             db_info = db.sources()
-            stale = stale_sources(db, config)
+            stale = [] if sample_data else stale_sources(db, config)
             if stale:
                 messages.append("脆弱性データの更新が古くなっています: " + "、".join(stale)
                                 + "（zk update で更新）")
@@ -368,7 +369,7 @@ def demo(ctx, out_dir):
                only_advisory=False, base_date=date(2026, 11, 20), scanner="osv", db_dir=str(examples / "vulndb"),
                skip_trivy=False, trivy_results_dir=None, save_trivy_json=None, work_dir=str(Path(out_dir) / "work"),
                cache_dir=str(examples / "cache"), offline=True, no_msrc=False, resolve=False, no_xlsx=False,
-               previous=None)
+               previous=None, sample_data=True)
     _echo(f"見本のレポート: {Path(out_dir).resolve() / 'report.xlsx'}")
 
 

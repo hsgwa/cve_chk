@@ -440,7 +440,7 @@ def load_inventories(inventory_dir: str | Path, env_master: dict[str, dict[str, 
         if info:
             env.exposure, env.system_name, env.registered = info["exposure"], info["system_name"], True
         else:
-            env.warnings.append("env_master に未登録のため internal（社内限定）として扱いました")
+            env.warnings.append("サーバー一覧（env_master.csv）に無いため internal（社内限定）として扱いました")
         envs.append(env)
     # env_master にあるのに回収フォルダが無い環境も、レポートから消さずに「判定不能」として出す
     # （回収し忘れたホストに気づけるようにする）

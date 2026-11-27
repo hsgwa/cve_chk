@@ -293,6 +293,7 @@ def test_demo_builds_sample_report(tmp_path):
     assert result.exit_code == 0, result.output
     assert (out / "report.xlsx").is_file() and (out / "report_detail.csv").is_file()
     assert "見本のレポート" in result.output
+    assert "更新が古くなっています" not in result.output  # 見本のデータは古くて当然なので警告しない
 
 
 def test_init_creates_work_folder_and_keeps_existing_files(tmp_path):
